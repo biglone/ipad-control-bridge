@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>iPad Control Bridge</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; overflow: hidden; background: #080b10; color: #f4f7fb; }
+    .stage { position: fixed; inset: 0; background: #080b10; }
+    #ipadImage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scale(var(--zoom, 1)); transform-origin: center; user-select: none; }
+    #placeholder { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #9aa9bc; background: #0b1017; }
+    #placeholder strong { display: block; margin-bottom: 8px; color: #f4f7fb; font-size: 20px; }
+    .scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(5,8,12,.78), transparent 18%, transparent 70%, rgba(5,8,12,.88)); }
+    .topbar { position: absolute; z-index: 3; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: max(16px, env(safe-area-inset-top)) 22px 16px; }
+    h1 { margin: 0; font-size: 17px; letter-spacing: .02em; }
+    #status { color: #ffbf69; font-size: 13px; }
+    #status.connected { color: #71e6a8; }
+    .hud { position: absolute; z-index: 3; left: 18px; right: 18px; bottom: max(16px, env(safe-area-inset-bottom)); display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; pointer-events: none; }
+    .toolbar, .info { pointer-events: auto; border: 1px solid rgba(176, 199, 228, .2); background: rgba(12, 18, 28, .88); backdrop-filter: blur(18px); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+    .toolbar { display: flex; align-items: center; gap: 7px; padding: 9px; border-radius: 16px; flex-wrap: wrap; }
+    button, input { color: #f4f7fb; border: 1px solid #3a4b64; border-radius: 10px; background: #1b2636; font: inherit; }
+    button { min-width: 44px; min-height: 42px; padding: 8px 12px; cursor: pointer; font-size: 14px; }
+    button:hover { background: #2b3c55; }
+    button:active { transform: translateY(1px); background: #3b5270; }
+    button.primary { border-color: #5ed69f; background: #16523f; }
+    .direction { font-size: 20px; padding-inline: 14px; }
+    .divider { width: 1px; height: 28px; background: #3a4b64; margin: 0 2px; }
+    .info { max-width: 300px; padding: 12px 14px; border-radius: 14px; color: #b5c4d7; font-size: 12px; line-height: 1.45; }
+    .info b { display: block; margin-bottom: 4px; color: #f4f7fb; font-size: 13px; }
+    .settings { position: absolute; z-index: 4; right: 18px; bottom: calc(max(16px, env(safe-area-inset-bottom)) + 66px); display: none; min-width: 240px; padding: 14px; border: 1px solid rgba(176,199,228,.25); border-radius: 14px; background: rgba(12,18,28,.94); backdrop-filter: blur(18px); }
+    .settings.open { display: grid; gap: 12px; }
+    .settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b5c4d7; font-size: 13px; }
+    .settings input { width: 82px; padding: 7px 8px; }
+    #log { position: absolute; z-index: 3; left: 22px; top: 58px; max-width: 45vw; color: #b5c4d7; font-size: 12px; pointer-events: none; }
+    @media (max-width: 720px) {
+      .topbar { padding-inline: 12px; }
+      .hud { left: 8px; right: 8px; display: block; }
+      .info { display: none; }
+      .toolbar { justify-content: center; }
+      .toolbar button { min-width: 40px; padding-inline: 9px; }
+      .settings { right: 8px; bottom: calc(max(16px, env(safe-area-inset-bottom)) + 148px); }
+      #log { left: 12px; max-width: 80vw; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" id="screen">
+    <img id="ipadImage" src="/current.jpg" alt="iPad 实时画面">
+    <div id="placeholder"><div><strong>等待 iPad 画面</strong>请确认 HDMI 采集卡已连接并启动服务。</div></div>
+    <div class="scrim"></div>
+    <header class="topbar"><h1>iPad Control Bridge</h1><div id="status">正在检查连接…</div></header>
+    <div id="log">鼠标模式：拖动画面移动光标，按钮执行对应操作</div>
+    <section class="settings" id="settings">
+      <label>方向步长 <input id="step" type="number" min="1" max="500" value="30"></label>
+      <label>滚轮步长 <input id="scrollStep" type="number" min="400" max="5000" step="50" value="400"></label>
+      <label>画面放大 <input id="zoom" type="number" min="1" max="2" step="0.1" value="1"></label>
+      <label>自定义 X <input id="dx" type="number" value="30"></label>
+      <label>自定义 Y <input id="dy" type="number" value="0"></label>
+      <button id="sendMove">发送自定义移动</button>
+    </section>
+    <div class="hud">
+      <div class="info"><b>鼠标模式</b>拖动画面发送相对移动；“左键”点击当前 iPad 光标位置。网页坐标不会伪装成绝对触控坐标。</div>
+      <nav class="toolbar" aria-label="iPad 控制按钮">
+        <button class="direction" data-step="-1,0" aria-label="左移">←</button>
+        <button class="direction" data-step="1,0" aria-label="右移">→</button>
+        <button class="direction" data-step="0,-1" aria-label="上移">↑</button>
+        <button class="direction" data-step="0,1" aria-label="下移">↓</button>
+        <span class="divider"></span>
+        <button data-command="/click left">左键</button>
+        <button data-scroll="-1">滚轮上</button>
+        <button data-scroll="1">滚轮下</button>
+        <button id="home" class="primary">⌘H 主屏</button>
+        <button id="settingsButton" aria-label="设置">⚙</button>
+      </nav>
+    </div>
+  </main>
+  <script>
+    const screen = document.querySelector('#screen');
+    const image = document.querySelector('#ipadImage');
+    const placeholder = document.querySelector('#placeholder');
+    const status = document.querySelector('#status');
+    const log = document.querySelector('#log');
+    const settings = document.querySelector('#settings');
+    const zoom = document.querySelector('#zoom');
+    const step = document.querySelector('#step');
+    const scrollStep = document.querySelector('#scrollStep');
+    let queue = Promise.resolve();
+    let dragging = false;
+    let pointerId = null;
+    let lastPoint = null;
+
+    function setLog(message) { log.textContent = message; }
+    async function command(value) {
+      setLog('发送：' + value);
+      try {
+        const response = await fetch('/api/command', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({command: value})});
+        const data = await response.json();
+        setLog(data.ok ? data.response : '错误：' + data.error);
+        return data;
+      } catch (error) {
+        setLog('网页服务连接失败：' + error.message);
+        return {ok: false, error: error.message};
+      }
+    }
+    function queued(value) {
+      queue = queue.then(() => command(value)).catch(() => ({ok: false}));
+      return queue;
+    }
+    async function refreshStatus() {
+      try {
+        const data = await fetch('/api/status', {cache: 'no-store'}).then(response => response.json());
+        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port : 'BLE 未连接';
+        status.classList.toggle('connected', data.connected);
+      } catch (error) {
+        status.textContent = '网页服务未连接';
+        status.classList.remove('connected');
+      }
+    }
+    function refreshImage() {
+      const probe = new Image();
+      const url = '/current.jpg?t=' + Date.now();
+      // Preload exactly one frame, then swap to that already-decoded URL.
+      // If capture is writing a partial JPEG, keep the previous frame instead
+      // of clearing the visible image and flashing black.
+      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; };
+      probe.onerror = () => {};
+      probe.src = url;
+    }
+    function updateZoom() { image.style.setProperty('--zoom', Math.max(1, Math.min(2, Number(zoom.value) || 1))); }
+    document.querySelectorAll('[data-command]').forEach(button => button.onclick = () => queued(button.dataset.command));
+    document.querySelectorAll('[data-scroll]').forEach(button => button.onclick = () => {
+      const amount = Math.max(400, Math.min(5000, Number(scrollStep.value) || 400));
+      queued(`/scroll ${Number(button.dataset.scroll) * amount}`);
+    });
+    document.querySelectorAll('[data-step]').forEach(button => button.onclick = () => {
+      const [x, y] = button.dataset.step.split(',').map(Number);
+      const amount = Math.max(1, Math.min(500, Number(step.value) || 30));
+      queued(`/move ${x * amount},${y * amount}`);
+    });
+    document.querySelector('#home').onclick = () => queued('/home');
+    document.querySelector('#settingsButton').onclick = () => settings.classList.toggle('open');
+    document.querySelector('#sendMove').onclick = () => queued(`/move ${Number(document.querySelector('#dx').value) || 0},${Number(document.querySelector('#dy').value) || 0}`);
+    zoom.addEventListener('input', updateZoom);
+    screen.addEventListener('pointerdown', event => {
+      if (event.target.closest('button, input, .settings')) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      dragging = true; pointerId = event.pointerId; lastPoint = {x: event.clientX, y: event.clientY};
+      screen.setPointerCapture(event.pointerId);
+      queued('/down left');
+    });
+    screen.addEventListener('pointermove', event => {
+      if (!dragging || event.pointerId !== pointerId || !lastPoint) return;
+      const dx = Math.round(event.clientX - lastPoint.x); const dy = Math.round(event.clientY - lastPoint.y);
+      lastPoint = {x: event.clientX, y: event.clientY};
+      if (dx || dy) queued(`/move ${dx},${dy}`);
+    });
+    function finishPointer(event) {
+      if (!dragging || event.pointerId !== pointerId) return;
+      dragging = false; pointerId = null; lastPoint = null; queued('/up left');
+      if (screen.hasPointerCapture(event.pointerId)) screen.releasePointerCapture(event.pointerId);
+    }
+    screen.addEventListener('pointerup', finishPointer);
+    screen.addEventListener('pointercancel', finishPointer);
+    updateZoom(); refreshImage(); refreshStatus();
+    setInterval(refreshImage, 500); setInterval(refreshStatus, 3000);
+  </script>
+</body>
+</html>
