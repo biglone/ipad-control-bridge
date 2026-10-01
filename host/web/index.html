@@ -40,6 +40,9 @@
     .info b { display: block; margin-bottom: 4px; color: #f4f7fb; font-size: 13px; }
     .settings { position: absolute; z-index: 4; right: max(18px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); display: none; min-width: 240px; padding: 14px; border: 1px solid rgba(176,199,228,.25); border-radius: 14px; background: rgba(12,18,28,.94); backdrop-filter: blur(18px); }
     .settings.open { display: grid; gap: 12px; }
+    .settings-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #f4f7fb; font-size: 14px; font-weight: 650; }
+    .settings-close { min-width: 34px; min-height: 34px; padding: 4px; border-color: rgba(126,153,184,.35); border-radius: 9px; background: rgba(25,36,51,.75); color: #a9bdd5; font-size: 20px; line-height: 1; }
+    .settings-close:hover { border-color: rgba(137,202,255,.72); background: rgba(39,61,84,.92); }
     .settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b5c4d7; font-size: 13px; }
     .settings input { width: 82px; padding: 7px 8px; }
     #log { position: absolute; z-index: 3; left: 22px; top: 58px; max-width: 45vw; color: #b5c4d7; font-size: 12px; pointer-events: none; }
@@ -93,6 +96,7 @@
     <header class="topbar"><h1>iPad Control Bridge</h1><div id="status">正在检查连接…</div></header>
     <div id="log">鼠标模式：拖动画面移动光标，按钮执行对应操作</div>
     <section class="settings" id="settings">
+      <div class="settings-header"><span>控制设置</span><button class="settings-close" id="closeSettings" aria-label="关闭设置">×</button></div>
       <label>方向步长 <input id="step" type="number" min="1" max="500" value="30"></label>
       <label>滚轮步长 <input id="scrollStep" type="number" min="400" max="5000" step="50" value="400"></label>
       <label>画面放大 <input id="zoom" type="number" min="1" max="2" step="0.1" value="1"></label>
@@ -127,12 +131,17 @@
     const status = document.querySelector('#status');
     const log = document.querySelector('#log');
     const settings = document.querySelector('#settings');
+    const closeSettings = document.querySelector('#closeSettings');
     const videoKeypad = document.querySelector('#videoKeypad');
     const keypadToggle = document.querySelector('#keypadToggle');
     const keypadContent = document.querySelector('#keypadContent');
     const zoom = document.querySelector('#zoom');
     const step = document.querySelector('#step');
     const scrollStep = document.querySelector('#scrollStep');
+    const dx = document.querySelector('#dx');
+    const dy = document.querySelector('#dy');
+    const SETTINGS_STORAGE_KEY = 'ipad-control-bridge.settings.v1';
+    const settingInputs = {step, scrollStep, zoom, dx, dy};
     let queue = Promise.resolve();
     let dragging = false;
     let pointerId = null;
@@ -178,7 +187,27 @@
       probe.onerror = () => {};
       probe.src = url;
     }
+    function restoreSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        Object.entries(settingInputs).forEach(([name, input]) => {
+          if (typeof saved[name] === 'string' && saved[name] !== '') input.value = saved[name];
+        });
+      } catch (error) {
+        // Ignore unavailable or malformed browser storage and keep defaults.
+      }
+    }
+    function saveSettings() {
+      try {
+        const values = Object.fromEntries(Object.entries(settingInputs).map(([name, input]) => [name, input.value]));
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
+      } catch (error) {
+        // Ignore restricted browser storage; the controls still work for this session.
+      }
+    }
     function updateZoom() { image.style.setProperty('--zoom', Math.max(1, Math.min(2, Number(zoom.value) || 1))); }
+    restoreSettings();
+    Object.values(settingInputs).forEach(input => input.addEventListener('input', saveSettings));
     document.querySelectorAll('[data-command]').forEach(button => button.onclick = () => queued(button.dataset.command));
     document.querySelectorAll('[data-key]').forEach(button => button.onclick = () => queued(`/key ${button.dataset.key}`));
     document.querySelectorAll('[data-scroll]').forEach(button => button.onclick = () => {
@@ -215,6 +244,7 @@
     });
     document.querySelector('#home').onclick = () => queued('/home');
     document.querySelector('#settingsButton').onclick = () => settings.classList.toggle('open');
+    closeSettings.onclick = () => settings.classList.remove('open');
     keypadToggle.onclick = () => {
       const open = !videoKeypad.classList.contains('open');
       videoKeypad.classList.toggle('open', open);
@@ -229,11 +259,19 @@
         keypadToggle.focus();
         return;
       }
+      if (event.key === 'Escape' && settings.classList.contains('open')) {
+        settings.classList.remove('open');
+        document.querySelector('#settingsButton').focus();
+        return;
+      }
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target.isContentEditable) return;
       if (/^[0-9]$/.test(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
         queued(`/key ${event.key}`);
       }
+    });
+    document.addEventListener('pointerdown', event => {
+      if (settings.classList.contains('open') && !event.target.closest('#settings, #settingsButton')) settings.classList.remove('open');
     });
     zoom.addEventListener('input', updateZoom);
     screen.addEventListener('pointerdown', event => {
