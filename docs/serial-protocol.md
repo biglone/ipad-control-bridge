@@ -21,6 +21,7 @@ Mac → USB-C 数据线 → XIAO ESP32-S3 → BLE HID Mouse → iPad Air 4
 | `/status` | 查询 BLE 连接状态 | `/status` |
 | `/move x,y` | 移动鼠标相对距离 | `/move 30,0` |
 | `/click left` | 左键点击一次 | `/click left` |
+| `/key 0-9` | 发送一个数字键 | `/key 5` |
 | `/down left` | 按住左键 | `/down left` |
 | `/up left` | 释放左键 | `/up left` |
 | `/scroll n` | 滚动 | `/scroll -3` |

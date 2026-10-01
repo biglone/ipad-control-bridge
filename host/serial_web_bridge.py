@@ -125,7 +125,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length))
             command = str(payload.get("command", "")).strip()
-            allowed = command.startswith(("/status", "/home", "/move ", "/click left", "/down left", "/up left", "/scroll "))
+            is_digit_key = len(command) == 6 and command.startswith("/key ") and command[-1] in "0123456789"
+            allowed = command.startswith(("/status", "/home", "/move ", "/click left", "/down left", "/up left", "/scroll ")) or is_digit_key
             if not allowed:
                 raise ValueError("Unsupported command")
             response = bridge.command(command)

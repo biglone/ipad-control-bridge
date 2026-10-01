@@ -22,7 +22,7 @@ void setup() {
 
     Serial.println("BLE mouse ready");
     Serial.println("Pair: iPad Settings > Bluetooth > iPad Control Bridge");
-    Serial.println("Commands: /move x,y  /click left  /scroll n  /home  /status");
+    Serial.println("Commands: /move x,y  /click left  /scroll n  /key 0-9  /home  /status");
 }
 
 void loop() {
@@ -74,6 +74,20 @@ void loop() {
     if (command == "/click left") {
         ble.mouseClick(ESP32BLECombo::MOUSE_LEFT);
         Serial.println("left click");
+        return;
+    }
+
+    if (command.startsWith("/key ")) {
+        String key = command.substring(5);
+        if (key.length() != 1 || key[0] < '0' || key[0] > '9') {
+            Serial.println("Usage: /key 0-9");
+            return;
+        }
+        char digit = key[0];
+        // write() sends a complete HID key press/release with the configured
+        // delays, which is more reliable on the iPad lock screen.
+        ble.write(static_cast<uint8_t>(digit));
+        Serial.println("key sent");
         return;
     }
 

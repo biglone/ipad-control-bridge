@@ -38,6 +38,7 @@ exec ffmpeg \
   -y \
   -f avfoundation \
   -framerate 30 \
+  -pixel_format uyvy422 \
   -video_size 1920x1080 \
   -i "${VIDEO_DEVICE}:none" \
   -vf "fps=12" \
