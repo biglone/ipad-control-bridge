@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
 CAPTURE_FILE = WEB_ROOT / "current.jpg"
 PORT = 8765
+BIND_HOST = os.environ.get("IPAD_BRIDGE_HOST", "0.0.0.0")
 SERIAL_CANDIDATES = ["/dev/cu.usbmodem101", "/dev/cu.usbmodem1101"]
 
 
@@ -139,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"iPad Control Bridge: http://127.0.0.1:{PORT}")
+    server = ThreadingHTTPServer((BIND_HOST, PORT), Handler)
+    display_host = "127.0.0.1" if BIND_HOST == "0.0.0.0" else BIND_HOST
+    print(f"iPad Control Bridge: http://{display_host}:{PORT}")
     print("Keep AirPlay mirroring open in a separate Mac window.")
     server.serve_forever()

@@ -11,7 +11,9 @@ cd /Users/biglone/workspace/ipad-control-bridge/host
 ./service.sh start
 ```
 
-然后打开 <http://127.0.0.1:8765>。
+Mac 本机打开 <http://127.0.0.1:8765>；手机与 Mac 连接同一 Wi‑Fi 后，打开启动脚本输出的局域网地址，例如
+`http://192.168.1.23:8765`。网页服务默认监听局域网，若只允许本机访问，可设置
+`IPAD_BRIDGE_HOST=127.0.0.1` 后再启动。
 
 常用命令：
 
@@ -29,7 +31,7 @@ cd /Users/biglone/workspace/ipad-control-bridge/host
 python3 serial_web_bridge.py
 ```
 
-然后打开 <http://127.0.0.1:8765>。
+然后打开 <http://127.0.0.1:8765>；手机访问时使用 Mac 的局域网 IP 加端口 `8765`。
 
 启动前请关闭 Arduino IDE 串口监视器，否则串口会被占用。iPad 继续保持与 `iPad Control Bridge` 的蓝牙连接。
 

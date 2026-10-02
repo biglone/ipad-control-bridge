@@ -11,7 +11,18 @@ CAPTURE_PID="$RUN_DIR/capture.pid"
 WEB_PID="$RUN_DIR/web.pid"
 CAPTURE_LOG="$LOG_DIR/capture.log"
 WEB_LOG="$LOG_DIR/web.log"
-WEB_URL="http://127.0.0.1:8765"
+HEALTH_URL="http://127.0.0.1:8765"
+
+get_lan_host() {
+  interface=$(route get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+  if [ -n "${interface:-}" ]; then
+    ipconfig getifaddr "$interface" 2>/dev/null && return 0
+  fi
+  echo "127.0.0.1"
+}
+
+WEB_HOST_DISPLAY="$(get_lan_host)"
+WEB_URL="http://${WEB_HOST_DISPLAY}:8765"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -85,7 +96,7 @@ status() {
     echo "网页服务：运行中（PID $(cat "$WEB_PID")）"
     if command -v curl >/dev/null 2>&1; then
       printf "ESP32 状态："
-      curl -fsS "$WEB_URL/api/status" 2>/dev/null || echo "无法读取"
+      curl -fsS "$HEALTH_URL/api/status" 2>/dev/null || echo "无法读取"
     fi
   else
     echo "网页服务：未运行"
