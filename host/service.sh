@@ -14,10 +14,17 @@ WEB_LOG="$LOG_DIR/web.log"
 HEALTH_URL="http://127.0.0.1:8765"
 
 get_lan_host() {
-  interface=$(route get default 2>/dev/null | awk '/interface:/{print $2; exit}')
-  if [ -n "${interface:-}" ]; then
-    ipconfig getifaddr "$interface" 2>/dev/null && return 0
-  fi
+  case "$(uname -s)" in
+    Darwin)
+      interface=$(route get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+      if [ -n "${interface:-}" ]; then
+        ipconfig getifaddr "$interface" 2>/dev/null && return 0
+      fi
+      ;;
+    Linux)
+      hostname -I 2>/dev/null | awk '{print $1; exit}' && return 0
+      ;;
+  esac
   echo "127.0.0.1"
 }
 

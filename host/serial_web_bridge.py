@@ -7,6 +7,7 @@ import glob
 import json
 import os
 import select
+import sys
 import termios
 import time
 import threading
@@ -21,14 +22,19 @@ WEB_ROOT = ROOT / "web"
 CAPTURE_FILE = WEB_ROOT / "current.jpg"
 PORT = 8765
 BIND_HOST = os.environ.get("IPAD_BRIDGE_HOST", "0.0.0.0")
-SERIAL_CANDIDATES = ["/dev/cu.usbmodem101", "/dev/cu.usbmodem1101"]
+if sys.platform == "darwin":
+    SERIAL_CANDIDATES = ["/dev/cu.usbmodem101", "/dev/cu.usbmodem1101"]
+    SERIAL_GLOBS = ["/dev/cu.usbmodem*", "/dev/tty.usbmodem*"]
+else:
+    SERIAL_CANDIDATES = ["/dev/ttyACM0", "/dev/ttyUSB0"]
+    SERIAL_GLOBS = ["/dev/ttyACM*", "/dev/ttyUSB*"]
 
 
 def find_serial_port() -> str | None:
     for port in SERIAL_CANDIDATES:
         if os.path.exists(port):
             return port
-    ports = sorted(glob.glob("/dev/cu.usbmodem*"))
+    ports = sorted(port for pattern in SERIAL_GLOBS for port in glob.glob(pattern))
     return ports[0] if ports else None
 
 
