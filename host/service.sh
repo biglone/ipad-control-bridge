@@ -11,7 +11,8 @@ CAPTURE_PID="$RUN_DIR/capture.pid"
 WEB_PID="$RUN_DIR/web.pid"
 CAPTURE_LOG="$LOG_DIR/capture.log"
 WEB_LOG="$LOG_DIR/web.log"
-HEALTH_URL="http://127.0.0.1:8765"
+PORT="${IPAD_BRIDGE_PORT:-8765}"
+HEALTH_URL="http://127.0.0.1:${PORT}"
 
 get_lan_host() {
   case "$(uname -s)" in
@@ -29,7 +30,7 @@ get_lan_host() {
 }
 
 WEB_HOST_DISPLAY="$(get_lan_host)"
-WEB_URL="http://${WEB_HOST_DISPLAY}:8765"
+WEB_URL="http://${WEB_HOST_DISPLAY}:${PORT}"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 

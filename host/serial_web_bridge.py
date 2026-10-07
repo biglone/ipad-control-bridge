@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
 CAPTURE_FILE = WEB_ROOT / "current.jpg"
-PORT = 8765
+PORT = int(os.environ.get("IPAD_BRIDGE_PORT", "8765"))
 BIND_HOST = os.environ.get("IPAD_BRIDGE_HOST", "0.0.0.0")
 if sys.platform == "darwin":
     SERIAL_CANDIDATES = ["/dev/cu.usbmodem101", "/dev/cu.usbmodem1101"]
