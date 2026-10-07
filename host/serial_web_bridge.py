@@ -38,6 +38,15 @@ class SerialBridge:
         self._port: str | None = None
         self._lock = threading.Lock()
 
+    def _disconnect(self) -> None:
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+        self._fd = None
+        self._port = None
+
     def connect(self) -> str:
         if self._fd is not None:
             return self._port or "unknown"
@@ -58,26 +67,30 @@ class SerialBridge:
 
     def command(self, command: str) -> str:
         with self._lock:
-            port = self.connect()
-            assert self._fd is not None
-            # A previous command can leave its response in the USB CDC input
-            # buffer. If we read that stale line for /status, the UI may show
-            # "moved" as if the BLE link were disconnected. Flush only before
-            # writing the next command; the response after this write belongs
-            # to the command we are about to send.
-            termios.tcflush(self._fd, termios.TCIFLUSH)
-            os.write(self._fd, (command.strip() + "\n").encode())
-            deadline = time.monotonic() + 0.8
-            chunks: list[bytes] = []
-            while time.monotonic() < deadline:
-                readable, _, _ = select.select([self._fd], [], [], 0.05)
-                if not readable:
-                    continue
-                chunks.append(os.read(self._fd, 4096))
-                if b"\n" in chunks[-1]:
-                    break
-            response = b"".join(chunks).decode(errors="replace").strip()
-            return response or f"sent via {port}"
+            for attempt in range(2):
+                try:
+                    port = self.connect()
+                    assert self._fd is not None
+                    # A previous command can leave its response in the USB CDC
+                    # input buffer. Flush it before writing the next command.
+                    termios.tcflush(self._fd, termios.TCIFLUSH)
+                    os.write(self._fd, (command.strip() + "\n").encode())
+                    deadline = time.monotonic() + 0.8
+                    chunks: list[bytes] = []
+                    while time.monotonic() < deadline:
+                        readable, _, _ = select.select([self._fd], [], [], 0.05)
+                        if not readable:
+                            continue
+                        chunks.append(os.read(self._fd, 4096))
+                        if b"\n" in chunks[-1]:
+                            break
+                    response = b"".join(chunks).decode(errors="replace").strip()
+                    return response or f"sent via {port}"
+                except OSError:
+                    self._disconnect()
+                    if attempt == 1:
+                        raise
+            raise RuntimeError("Serial command retry failed")
 
     def status(self) -> dict[str, str | bool]:
         try:
