@@ -12,6 +12,7 @@ WEB_PID="$RUN_DIR/web.pid"
 CAPTURE_LOG="$LOG_DIR/capture.log"
 WEB_LOG="$LOG_DIR/web.log"
 PORT="${IPAD_BRIDGE_PORT:-28765}"
+export IPAD_BRIDGE_PORT="$PORT"
 HEALTH_URL="http://127.0.0.1:${PORT}"
 
 get_lan_host() {
