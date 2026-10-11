@@ -232,8 +232,9 @@
         frameInfo = data.frame || null;
         placeActiveFrame();
         placeCalibrationTarget(calibrationIndex);
+        const frameLabel = data.frame?.locked ? ' · 边界已锁定' : '';
         const calibrationLabel = data.calibration_ready ? ' · 多点校准完成' : data.calibrated ? ' · 已复位待标定' : ' · 未校准';
-        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + calibrationLabel : 'BLE 未连接';
+        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + calibrationLabel + frameLabel : 'BLE 未连接';
         status.classList.toggle('connected', data.connected);
       } catch (error) {
         status.textContent = '网页服务未连接';
