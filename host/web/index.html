@@ -43,6 +43,7 @@
     .settings-close:hover { border-color: rgba(137,202,255,.72); background: rgba(39,61,84,.92); }
     .settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b5c4d7; font-size: 13px; }
     .settings input { width: 82px; padding: 7px 8px; }
+    .settings .wide { width: 100%; }
     #log { position: absolute; z-index: 3; left: 22px; top: 58px; max-width: 45vw; color: #b5c4d7; font-size: 12px; pointer-events: none; }
     .video-keypad { position: absolute; z-index: 4; top: 50%; right: max(18px, env(safe-area-inset-right)); display: grid; justify-items: end; gap: 8px; transform: translateY(-50%); pointer-events: auto; }
     .keypad-toggle { width: 48px; min-width: 48px; height: 40px; min-height: 40px; padding: 6px 8px; border-color: rgba(126, 153, 184, .45); border-radius: 12px; background: rgba(13, 21, 32, .78); box-shadow: 0 8px 24px rgba(0,0,0,.28); color: #c9d8ea; font-size: 12px; font-weight: 650; letter-spacing: .04em; backdrop-filter: blur(12px); }
@@ -108,7 +109,7 @@
       </div>
     </div>
     <header class="topbar"><h1>iPad Control Bridge</h1><div id="status">正在检查连接…</div></header>
-    <div id="log">鼠标模式：拖动画面移动光标，按钮执行对应操作</div>
+    <div id="log">先校准鼠标，再点击画面中的目标位置；拖动可执行按住移动</div>
     <section class="settings" id="settings">
       <div class="settings-header"><span>控制设置</span><button class="settings-close" id="closeSettings" aria-label="关闭设置">×</button></div>
       <label>方向步长 <input id="step" type="number" min="1" max="500" value="30"></label>
@@ -117,6 +118,7 @@
       <label>自定义 X <input id="dx" type="number" value="30"></label>
       <label>自定义 Y <input id="dy" type="number" value="0"></label>
       <button id="sendMove">发送自定义移动</button>
+      <button class="wide primary" id="calibrateMouse">校准鼠标到左上角</button>
     </section>
     <div class="hud">
       <nav class="toolbar" aria-label="iPad 控制按钮">
@@ -162,6 +164,8 @@
     let repeatingDirection = null;
     let repeatDelay = null;
     let repeatTimer = null;
+    let dragStarted = false;
+    let dragMoved = false;
 
     function setLog(message) { log.textContent = message; }
     async function command(value) {
@@ -180,10 +184,25 @@
       queue = queue.then(() => command(value)).catch(() => ({ok: false}));
       return queue;
     }
+    function mouseAction(action) {
+      queue = queue.then(async () => {
+        setLog(action.action === 'calibrate' ? '正在校准鼠标…' : '正在定位并点击…');
+        try {
+          const response = await fetch('/api/mouse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(action)});
+          const data = await response.json();
+          setLog(data.ok ? data.response : '错误：' + data.error);
+          return data;
+        } catch (error) {
+          setLog('网页服务连接失败：' + error.message);
+          return {ok: false, error: error.message};
+        }
+      }).catch(() => ({ok: false}));
+      return queue;
+    }
     async function refreshStatus() {
       try {
         const data = await fetch('/api/status', {cache: 'no-store'}).then(response => response.json());
-        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port : 'BLE 未连接';
+        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + (data.calibrated ? ' · 已校准' : ' · 未校准') : 'BLE 未连接';
         status.classList.toggle('connected', data.connected);
       } catch (error) {
         status.textContent = '网页服务未连接';
@@ -283,6 +302,7 @@
       if (open) keypadContent.querySelector('[data-key="1"]').focus();
     };
     document.querySelector('#sendMove').onclick = () => queued(`/move ${Number(document.querySelector('#dx').value) || 0},${Number(document.querySelector('#dy').value) || 0}`);
+    document.querySelector('#calibrateMouse').onclick = () => mouseAction({action: 'calibrate'});
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && videoKeypad.classList.contains('open')) {
         keypadToggle.click();
@@ -306,19 +326,41 @@
     zoom.addEventListener('input', updateZoom);
     image.addEventListener('pointerdown', event => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
-      dragging = true; pointerId = event.pointerId; lastPoint = {x: event.clientX, y: event.clientY};
+      dragging = true; dragStarted = false; dragMoved = false; pointerId = event.pointerId; lastPoint = {x: event.clientX, y: event.clientY};
       image.setPointerCapture(event.pointerId);
-      queued('/down left');
     });
     image.addEventListener('pointermove', event => {
       if (!dragging || event.pointerId !== pointerId || !lastPoint) return;
       const dx = Math.round(event.clientX - lastPoint.x); const dy = Math.round(event.clientY - lastPoint.y);
       lastPoint = {x: event.clientX, y: event.clientY};
-      if (dx || dy) queued(`/move ${dx},${dy}`);
+      if (dx || dy) {
+        dragMoved = true;
+        if (!dragStarted) { dragStarted = true; queued('/down left'); }
+        queued(`/move ${dx},${dy}`);
+      }
     });
+    function imagePoint(event) {
+      const rect = image.getBoundingClientRect();
+      const naturalWidth = image.naturalWidth || Math.round(rect.width);
+      const naturalHeight = image.naturalHeight || Math.round(rect.height);
+      const aspect = naturalWidth / naturalHeight;
+      const contentWidth = Math.min(rect.width, rect.height * aspect);
+      const contentHeight = contentWidth / aspect;
+      const left = rect.left + (rect.width - contentWidth) / 2;
+      const top = rect.top + (rect.height - contentHeight) / 2;
+      return {
+        x: Math.round((event.clientX - left) / contentWidth * naturalWidth),
+        y: Math.round((event.clientY - top) / contentHeight * naturalHeight),
+        width: naturalWidth,
+        height: naturalHeight,
+      };
+    }
     function finishPointer(event) {
       if (!dragging || event.pointerId !== pointerId) return;
-      dragging = false; pointerId = null; lastPoint = null; queued('/up left');
+      const wasDrag = dragMoved;
+      if (wasDrag) queued('/up left');
+      else mouseAction({action: 'click_at', ...imagePoint(event)});
+      dragging = false; dragStarted = false; dragMoved = false; pointerId = null; lastPoint = null;
       if (image.hasPointerCapture(event.pointerId)) image.releasePointerCapture(event.pointerId);
     }
     image.addEventListener('pointerup', finishPointer);

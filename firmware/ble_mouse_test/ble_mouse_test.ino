@@ -22,7 +22,7 @@ void setup() {
 
     Serial.println("BLE mouse ready");
     Serial.println("Pair: iPad Settings > Bluetooth > iPad Control Bridge");
-    Serial.println("Commands: /move x,y  /click left  /scroll n  /key 0-9  /home  /status");
+    Serial.println("Commands: /move x,y  /click left  /edge  /scroll n  /key 0-9  /home  /status");
 }
 
 void loop() {
@@ -74,6 +74,17 @@ void loop() {
     if (command == "/click left") {
         ble.mouseClick(ESP32BLECombo::MOUSE_LEFT);
         Serial.println("left click");
+        return;
+    }
+
+    if (command == "/edge") {
+        // Repeated relative moves bring the iPad pointer to the top-left edge.
+        // The host uses this as the origin for calibrated absolute clicks.
+        for (int i = 0; i < 32; ++i) {
+            ble.mouseMove(-127, -127);
+            delay(4);
+        }
+        Serial.println("pointer at top-left edge");
         return;
     }
 

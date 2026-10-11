@@ -43,6 +43,7 @@ class SerialBridge:
         self._fd: int | None = None
         self._port: str | None = None
         self._lock = threading.Lock()
+        self._cursor: tuple[int, int] | None = None
 
     def _disconnect(self) -> None:
         if self._fd is not None:
@@ -91,6 +92,13 @@ class SerialBridge:
                         if b"\n" in chunks[-1]:
                             break
                     response = b"".join(chunks).decode(errors="replace").strip()
+                    if response and command.startswith("/move "):
+                        try:
+                            dx, dy = (int(value.strip()) for value in command[6:].split(",", 1))
+                            if self._cursor is not None:
+                                self._cursor = (self._cursor[0] + dx, self._cursor[1] + dy)
+                        except ValueError:
+                            pass
                     return response or f"sent via {port}"
                 except OSError:
                     self._disconnect()
@@ -105,9 +113,36 @@ class SerialBridge:
                 "connected": "BLE connected" in response,
                 "port": self._port or "unknown",
                 "response": response,
+                "calibrated": self._cursor is not None,
+                "cursor": self._cursor,
             }
         except Exception as exc:  # Prototype endpoint: return diagnostics to the UI.
-            return {"connected": False, "port": self._port or "none", "response": str(exc)}
+            return {
+                "connected": False,
+                "port": self._port or "none",
+                "response": str(exc),
+                "calibrated": self._cursor is not None,
+                "cursor": self._cursor,
+            }
+
+    def calibrate(self) -> str:
+        response = self.command("/edge")
+        self._cursor = (0, 0)
+        return response
+
+    def click_at(self, x: int, y: int, width: int, height: int) -> str:
+        if self._cursor is None:
+            raise RuntimeError("请先校准鼠标位置")
+        if width <= 0 or height <= 0:
+            raise ValueError("无效的 iPad 画面尺寸")
+        target = (max(0, min(width - 1, x)), max(0, min(height - 1, y)))
+        dx = target[0] - self._cursor[0]
+        dy = target[1] - self._cursor[1]
+        if dx or dy:
+            self.command(f"/move {dx},{dy}")
+        response = self.command("/click left")
+        self._cursor = target
+        return response
 
 
 bridge = SerialBridge()
@@ -138,12 +173,28 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"Not found", "text/plain; charset=utf-8")
 
     def do_POST(self) -> None:  # noqa: N802
-        if urlparse(self.path).path != "/api/command":
+        path = urlparse(self.path).path
+        if path not in ("/api/command", "/api/mouse"):
             self._send(404, b"Not found", "text/plain; charset=utf-8")
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length))
+            if path == "/api/mouse":
+                action = str(payload.get("action", "")).strip()
+                if action == "calibrate":
+                    response = bridge.calibrate()
+                elif action == "click_at":
+                    response = bridge.click_at(
+                        int(payload.get("x", -1)),
+                        int(payload.get("y", -1)),
+                        int(payload.get("width", 0)),
+                        int(payload.get("height", 0)),
+                    )
+                else:
+                    raise ValueError("Unsupported mouse action")
+                self._send(200, json.dumps({"ok": True, "response": response}).encode(), "application/json")
+                return
             command = str(payload.get("command", "")).strip()
             is_digit_key = len(command) == 6 and command.startswith("/key ") and command[-1] in "0123456789"
             allowed = command.startswith(("/status", "/home", "/move ", "/click left", "/down left", "/up left", "/scroll ")) or is_digit_key
