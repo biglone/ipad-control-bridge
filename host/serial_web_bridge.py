@@ -127,6 +127,8 @@ class SerialBridge:
 
     def calibrate(self) -> str:
         response = self.command("/edge")
+        if "pointer at top-left edge" not in response:
+            raise RuntimeError(response or "ESP32 未确认校准成功")
         self._cursor = (0, 0)
         return response
 
