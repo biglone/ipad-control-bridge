@@ -10,6 +10,7 @@
     body { margin: 0; min-height: 100vh; overflow: hidden; background: #080b10; color: #f4f7fb; }
     .stage { position: fixed; inset: 0; background: #080b10; touch-action: none; }
     #ipadImage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scale(var(--zoom, 1)); transform-origin: center; user-select: none; }
+    #calibrationTarget { position: absolute; z-index: 2; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 3px solid #ff5364; border-radius: 50%; box-shadow: 0 0 0 5px rgba(255,83,100,.28), 0 0 18px rgba(255,83,100,.85); pointer-events: none; }
     #placeholder { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #9aa9bc; background: #0b1017; }
     #placeholder strong { display: block; margin-bottom: 8px; color: #f4f7fb; font-size: 20px; }
     .scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(5,8,12,.78), transparent 18%, transparent 70%, rgba(5,8,12,.88)); }
@@ -93,6 +94,7 @@
 <body>
   <main class="stage" id="screen">
     <img id="ipadImage" src="/current.jpg" alt="iPad 实时画面">
+    <div id="calibrationTarget" hidden></div>
     <div id="placeholder"><div><strong>等待 iPad 画面</strong>请确认 HDMI 采集卡已连接并启动服务。</div></div>
     <div class="scrim"></div>
     <div class="video-keypad" id="videoKeypad" aria-label="视频画面数字触摸键">
@@ -181,6 +183,7 @@
     let dragMoved = false;
     let frameInfo = null;
     let calibrationStarted = false;
+    let calibrationIndex = 0;
     const calibrationPoints = [
       {name: '左上', x: 0.08, y: 0.08},
       {name: '右上', x: 0.92, y: 0.08},
@@ -238,9 +241,29 @@
       // Preload exactly one frame, then swap to that already-decoded URL.
       // If capture is writing a partial JPEG, keep the previous frame instead
       // of clearing the visible image and flashing black.
-      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; };
+      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; placeCalibrationTarget(calibrationIndex); };
       probe.onerror = () => {};
       probe.src = url;
+    }
+    function placeCalibrationTarget(index) {
+      if (!calibrationStarted || !frameInfo?.content_rect || !image.naturalWidth) {
+        document.querySelector('#calibrationTarget').hidden = true;
+        return;
+      }
+      const marker = document.querySelector('#calibrationTarget');
+      const rect = image.getBoundingClientRect();
+      const frameWidth = image.naturalWidth;
+      const frameHeight = image.naturalHeight;
+      const frameAspect = frameWidth / frameHeight;
+      const displayedWidth = Math.min(rect.width, rect.height * frameAspect);
+      const displayedHeight = displayedWidth / frameAspect;
+      const frameLeft = rect.left + (rect.width - displayedWidth) / 2;
+      const frameTop = rect.top + (rect.height - displayedHeight) / 2;
+      const active = frameInfo.content_rect;
+      const point = calibrationPoints[index];
+      marker.style.left = `${frameLeft + (active.x + active.width * point.x) / frameWidth * displayedWidth}px`;
+      marker.style.top = `${frameTop + (active.y + active.height * point.y) / frameHeight * displayedHeight}px`;
+      marker.hidden = false;
     }
     function restoreSettings() {
       try {
@@ -327,8 +350,10 @@
     document.querySelector('#sendMove').onclick = () => queued(`/move ${Number(document.querySelector('#dx').value) || 0},${Number(document.querySelector('#dy').value) || 0}`);
     document.querySelector('#calibrateMouse').onclick = () => {
       calibrationStarted = true;
+      calibrationIndex = 0;
       mouseAction({action: 'calibration_start'}).then(() => refreshStatus());
       setLog('已复位到左上，请按校准点依次放置实际 iPad 光标');
+      placeCalibrationTarget(calibrationIndex);
     };
     document.querySelectorAll('[data-calibration-point]').forEach(button => {
       button.onclick = () => {
@@ -339,11 +364,19 @@
         const point = calibrationPoints[Number(button.dataset.calibrationPoint)];
         const rect = frameInfo.content_rect;
         mouseAction({action: 'record_point', x: Math.round(rect.width * point.x), y: Math.round(rect.height * point.y)})
-          .then(() => refreshStatus());
+          .then(() => {
+            calibrationIndex = Math.min(calibrationPoints.length - 1, Number(button.dataset.calibrationPoint) + 1);
+            placeCalibrationTarget(calibrationIndex);
+            refreshStatus();
+          });
       };
     });
     document.querySelector('#solveCalibration').onclick = () => {
-      mouseAction({action: 'solve_calibration'}).then(() => { calibrationStarted = false; refreshStatus(); });
+      mouseAction({action: 'solve_calibration'}).then(() => {
+        calibrationStarted = false;
+        document.querySelector('#calibrationTarget').hidden = true;
+        refreshStatus();
+      });
     };
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && videoKeypad.classList.contains('open')) {
