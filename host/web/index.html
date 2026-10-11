@@ -10,8 +10,6 @@
     body { margin: 0; min-height: 100vh; overflow: hidden; background: #080b10; color: #f4f7fb; }
     .stage { position: fixed; inset: 0; background: #080b10; touch-action: none; }
     #ipadImage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scale(var(--zoom, 1)); transform-origin: center; user-select: none; }
-    #activeFrame { position: absolute; z-index: 1; border: 2px dashed rgba(87,214,255,.9); box-shadow: 0 0 0 1px rgba(0,0,0,.45), inset 0 0 24px rgba(87,214,255,.08); pointer-events: none; }
-    #calibrationTarget { position: absolute; z-index: 2; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 3px solid #ff5364; border-radius: 50%; box-shadow: 0 0 0 5px rgba(255,83,100,.28), 0 0 18px rgba(255,83,100,.85); pointer-events: none; }
     #placeholder { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #9aa9bc; background: #0b1017; }
     #placeholder strong { display: block; margin-bottom: 8px; color: #f4f7fb; font-size: 20px; }
     .scrim { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(5,8,12,.78), transparent 18%, transparent 70%, rgba(5,8,12,.88)); }
@@ -45,10 +43,6 @@
     .settings-close:hover { border-color: rgba(137,202,255,.72); background: rgba(39,61,84,.92); }
     .settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b5c4d7; font-size: 13px; }
     .settings input { width: 82px; padding: 7px 8px; }
-    .settings .wide { width: 100%; }
-    .calibration-box { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid #3a4b64; color: #b5c4d7; font-size: 12px; line-height: 1.45; }
-    .calibration-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-    .calibration-points button { min-width: 0; min-height: 34px; padding: 5px; font-size: 11px; }
     #log { position: absolute; z-index: 3; left: 22px; top: 58px; max-width: 45vw; color: #b5c4d7; font-size: 12px; pointer-events: none; }
     .video-keypad { position: absolute; z-index: 4; top: 50%; right: max(18px, env(safe-area-inset-right)); display: grid; justify-items: end; gap: 8px; transform: translateY(-50%); pointer-events: auto; }
     .keypad-toggle { width: 48px; min-width: 48px; height: 40px; min-height: 40px; padding: 6px 8px; border-color: rgba(126, 153, 184, .45); border-radius: 12px; background: rgba(13, 21, 32, .78); box-shadow: 0 8px 24px rgba(0,0,0,.28); color: #c9d8ea; font-size: 12px; font-weight: 650; letter-spacing: .04em; backdrop-filter: blur(12px); }
@@ -95,8 +89,6 @@
 <body>
   <main class="stage" id="screen">
     <img id="ipadImage" src="/current.jpg" alt="iPad 实时画面">
-    <div id="activeFrame" hidden></div>
-    <div id="calibrationTarget" hidden></div>
     <div id="placeholder"><div><strong>等待 iPad 画面</strong>请确认 HDMI 采集卡已连接并启动服务。</div></div>
     <div class="scrim"></div>
     <div class="video-keypad" id="videoKeypad" aria-label="视频画面数字触摸键">
@@ -116,7 +108,7 @@
       </div>
     </div>
     <header class="topbar"><h1>iPad Control Bridge</h1><div id="status">正在检查连接…</div></header>
-    <div id="log">先校准鼠标，再点击画面中的目标位置；拖动可执行按住移动</div>
+    <div id="log">鼠标模式：拖动画面移动光标，按钮执行对应操作</div>
     <section class="settings" id="settings">
       <div class="settings-header"><span>控制设置</span><button class="settings-close" id="closeSettings" aria-label="关闭设置">×</button></div>
       <label>方向步长 <input id="step" type="number" min="1" max="500" value="30"></label>
@@ -125,17 +117,6 @@
       <label>自定义 X <input id="dx" type="number" value="30"></label>
       <label>自定义 Y <input id="dy" type="number" value="0"></label>
       <button id="sendMove">发送自定义移动</button>
-      <button class="wide primary" id="calibrateMouse">开始多点校准（复位）</button>
-      <div class="calibration-box" id="calibrationBox">
-        <div>蓝框是锁定的 iPad 画面边界；红环是目标，不是当前光标。左上角记录后，系统会自动把实际光标推到下一个角点；确认白色光标与红环中心重合后再记录。</div>
-        <div class="calibration-points">
-          <button data-calibration-point="0">记录左上角</button>
-          <button data-calibration-point="1">记录右上角</button>
-          <button data-calibration-point="2">记录右下角</button>
-          <button data-calibration-point="3">记录左下角</button>
-        </div>
-        <button class="wide" id="solveCalibration">完成多点校准</button>
-      </div>
     </section>
     <div class="hud">
       <nav class="toolbar" aria-label="iPad 控制按钮">
@@ -159,7 +140,6 @@
   <script>
     const screen = document.querySelector('#screen');
     const image = document.querySelector('#ipadImage');
-    const activeFrame = document.querySelector('#activeFrame');
     const placeholder = document.querySelector('#placeholder');
     const status = document.querySelector('#status');
     const log = document.querySelector('#log');
@@ -176,24 +156,9 @@
     const SETTINGS_STORAGE_KEY = 'ipad-control-bridge.settings.v1';
     const settingInputs = {step, scrollStep, zoom, dx, dy};
     let queue = Promise.resolve();
-    let dragging = false;
-    let pointerId = null;
-    let lastPoint = null;
     let repeatingDirection = null;
     let repeatDelay = null;
     let repeatTimer = null;
-    let dragStarted = false;
-    let dragMoved = false;
-    let frameInfo = null;
-    let calibrationStarted = false;
-    let calibrationIndex = 0;
-    const calibrationPoints = [
-      {name: '左上', x: 0.02, y: 0.02},
-      {name: '右上', x: 0.98, y: 0.02},
-      {name: '右下', x: 0.98, y: 0.98},
-      {name: '左下', x: 0.02, y: 0.98},
-    ];
-    const calibrationCorners = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
 
     function setLog(message) { log.textContent = message; }
     async function command(value) {
@@ -212,30 +177,10 @@
       queue = queue.then(() => command(value)).catch(() => ({ok: false}));
       return queue;
     }
-    function mouseAction(action) {
-      queue = queue.then(async () => {
-        setLog(action.action === 'calibrate' ? '正在校准鼠标…' : action.action === 'record_point' ? '正在记录并移动到下一个角点…' : '正在定位并点击…');
-        try {
-          const response = await fetch('/api/mouse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(action)});
-          const data = await response.json();
-          setLog(data.ok ? data.response : '错误：' + data.error);
-          return data;
-        } catch (error) {
-          setLog('网页服务连接失败：' + error.message);
-          return {ok: false, error: error.message};
-        }
-      }).catch(() => ({ok: false}));
-      return queue;
-    }
     async function refreshStatus() {
       try {
         const data = await fetch('/api/status', {cache: 'no-store'}).then(response => response.json());
-        frameInfo = data.frame || null;
-        placeActiveFrame();
-        placeCalibrationTarget(calibrationIndex);
-        const frameLabel = data.frame?.locked ? ' · 边界已锁定' : '';
-        const calibrationLabel = data.calibration_ready ? ' · 多点校准完成' : data.calibrated ? ' · 已复位待标定' : ' · 未校准';
-        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + calibrationLabel + frameLabel : 'BLE 未连接';
+        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port : 'BLE 未连接';
         status.classList.toggle('connected', data.connected);
       } catch (error) {
         status.textContent = '网页服务未连接';
@@ -248,59 +193,15 @@
       // Preload exactly one frame, then swap to that already-decoded URL.
       // If capture is writing a partial JPEG, keep the previous frame instead
       // of clearing the visible image and flashing black.
-      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; placeActiveFrame(); placeCalibrationTarget(calibrationIndex); };
+      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; };
       probe.onerror = () => {};
       probe.src = url;
     }
-    function placeCalibrationTarget(index) {
-      if (!calibrationStarted || !frameInfo?.content_rect || !image.naturalWidth) {
-        document.querySelector('#calibrationTarget').hidden = true;
-        return;
-      }
-      const marker = document.querySelector('#calibrationTarget');
-      const rect = image.getBoundingClientRect();
-      const frameWidth = image.naturalWidth;
-      const frameHeight = image.naturalHeight;
-      const frameAspect = frameWidth / frameHeight;
-      const displayedWidth = Math.min(rect.width, rect.height * frameAspect);
-      const displayedHeight = displayedWidth / frameAspect;
-      const frameLeft = rect.left + (rect.width - displayedWidth) / 2;
-      const frameTop = rect.top + (rect.height - displayedHeight) / 2;
-      const active = frameInfo.content_rect;
-      const point = calibrationPoints[index];
-      marker.style.left = `${frameLeft + (active.x + active.width * point.x) / frameWidth * displayedWidth}px`;
-      marker.style.top = `${frameTop + (active.y + active.height * point.y) / frameHeight * displayedHeight}px`;
-      marker.hidden = false;
-    }
-    function placeActiveFrame() {
-      if (!frameInfo?.content_rect || !image.naturalWidth) {
-        activeFrame.hidden = true;
-        return;
-      }
-      const rect = image.getBoundingClientRect();
-      const frameAspect = image.naturalWidth / image.naturalHeight;
-      const displayedWidth = Math.min(rect.width, rect.height * frameAspect);
-      const displayedHeight = displayedWidth / frameAspect;
-      const frameLeft = rect.left + (rect.width - displayedWidth) / 2;
-      const frameTop = rect.top + (rect.height - displayedHeight) / 2;
-      const active = frameInfo.content_rect;
-      activeFrame.style.left = `${frameLeft + active.x / image.naturalWidth * displayedWidth}px`;
-      activeFrame.style.top = `${frameTop + active.y / image.naturalHeight * displayedHeight}px`;
-      activeFrame.style.width = `${active.width / image.naturalWidth * displayedWidth}px`;
-      activeFrame.style.height = `${active.height / image.naturalHeight * displayedHeight}px`;
-      activeFrame.hidden = false;
-    }
     function restoreSettings() {
       try {
-        let raw = '';
-        try { raw = localStorage.getItem(SETTINGS_STORAGE_KEY) || ''; } catch (storageError) {}
-        const cookieValue = document.cookie.match(/(?:^|; )ipad-control-bridge-settings=([^;]*)/)?.[1];
-        if (!raw && cookieValue) raw = decodeURIComponent(cookieValue);
-        const saved = JSON.parse(raw || '{}');
+        const saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
         Object.entries(settingInputs).forEach(([name, input]) => {
-          if ((typeof saved[name] === 'string' || typeof saved[name] === 'number') && String(saved[name]) !== '') {
-            input.value = String(saved[name]);
-          }
+          if (typeof saved[name] === 'string' && saved[name] !== '') input.value = saved[name];
         });
       } catch (error) {
         // Ignore unavailable or malformed browser storage and keep defaults.
@@ -309,25 +210,14 @@
     function saveSettings() {
       try {
         const values = Object.fromEntries(Object.entries(settingInputs).map(([name, input]) => [name, input.value]));
-        const serialized = JSON.stringify(values);
-        localStorage.setItem(SETTINGS_STORAGE_KEY, serialized);
-        document.cookie = 'ipad-control-bridge-settings=' + encodeURIComponent(serialized) + '; max-age=31536000; path=/; SameSite=Lax';
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
       } catch (error) {
-        try {
-          const values = Object.fromEntries(Object.entries(settingInputs).map(([name, input]) => [name, input.value]));
-          document.cookie = 'ipad-control-bridge-settings=' + encodeURIComponent(JSON.stringify(values)) + '; max-age=31536000; path=/; SameSite=Lax';
-        } catch (fallbackError) {
-          // Ignore restricted browser storage; the controls still work for this session.
-        }
+        // Ignore restricted browser storage; the controls still work for this session.
       }
     }
     function updateZoom() { image.style.setProperty('--zoom', Math.max(1, Math.min(2, Number(zoom.value) || 1))); }
     restoreSettings();
-    Object.values(settingInputs).forEach(input => {
-      input.addEventListener('input', saveSettings);
-      input.addEventListener('change', saveSettings);
-    });
-    window.addEventListener('pagehide', saveSettings);
+    Object.values(settingInputs).forEach(input => input.addEventListener('input', saveSettings));
     document.querySelectorAll('[data-command]').forEach(button => button.onclick = () => queued(button.dataset.command));
     document.querySelectorAll('[data-key]').forEach(button => button.onclick = () => queued(`/key ${button.dataset.key}`));
     document.querySelectorAll('[data-scroll]').forEach(button => button.onclick = () => {
@@ -373,42 +263,6 @@
       if (open) keypadContent.querySelector('[data-key="1"]').focus();
     };
     document.querySelector('#sendMove').onclick = () => queued(`/move ${Number(document.querySelector('#dx').value) || 0},${Number(document.querySelector('#dy').value) || 0}`);
-    document.querySelector('#calibrateMouse').onclick = () => {
-      calibrationStarted = true;
-      calibrationIndex = 0;
-      mouseAction({action: 'calibration_start'}).then(() => refreshStatus());
-      setLog('已复位到左上，请确认白色光标与红环中心重合后记录');
-      placeCalibrationTarget(calibrationIndex);
-    };
-    document.querySelectorAll('[data-calibration-point]').forEach(button => {
-      button.onclick = () => {
-        if (!calibrationStarted || !frameInfo?.content_rect) {
-          setLog('请先点击“开始多点校准（复位）”');
-          return;
-        }
-        const pointIndex = Number(button.dataset.calibrationPoint);
-        if (pointIndex !== calibrationIndex) {
-          setLog(`请先记录${calibrationPoints[calibrationIndex].name}角`);
-          return;
-        }
-        const point = calibrationPoints[pointIndex];
-        const rect = frameInfo.content_rect;
-        const nextCorner = pointIndex < calibrationCorners.length - 1 ? calibrationCorners[pointIndex + 1] : null;
-        mouseAction({action: 'record_point', x: Math.round(rect.width * point.x), y: Math.round(rect.height * point.y), next_corner: nextCorner})
-          .then(() => {
-            calibrationIndex = Math.min(calibrationPoints.length - 1, Number(button.dataset.calibrationPoint) + 1);
-            placeCalibrationTarget(calibrationIndex);
-            refreshStatus();
-          });
-      };
-    });
-    document.querySelector('#solveCalibration').onclick = () => {
-      mouseAction({action: 'solve_calibration'}).then(() => {
-        calibrationStarted = false;
-        document.querySelector('#calibrationTarget').hidden = true;
-        refreshStatus();
-      });
-    };
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && videoKeypad.classList.contains('open')) {
         keypadToggle.click();
@@ -430,50 +284,6 @@
       if (settings.classList.contains('open') && !event.target.closest('#settings, #settingsButton')) settings.classList.remove('open');
     });
     zoom.addEventListener('input', updateZoom);
-    image.addEventListener('pointerdown', event => {
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
-      dragging = true; dragStarted = false; dragMoved = false; pointerId = event.pointerId; lastPoint = {x: event.clientX, y: event.clientY};
-      image.setPointerCapture(event.pointerId);
-    });
-    image.addEventListener('pointermove', event => {
-      if (!dragging || event.pointerId !== pointerId || !lastPoint) return;
-      const dx = Math.round(event.clientX - lastPoint.x); const dy = Math.round(event.clientY - lastPoint.y);
-      lastPoint = {x: event.clientX, y: event.clientY};
-      if (dx || dy) {
-        dragMoved = true;
-        if (!dragStarted) { dragStarted = true; queued('/down left'); }
-        queued(`/move ${dx},${dy}`);
-      }
-    });
-    function imagePoint(event) {
-      const rect = image.getBoundingClientRect();
-      const frameWidth = image.naturalWidth || Math.round(rect.width);
-      const frameHeight = image.naturalHeight || Math.round(rect.height);
-      const aspect = frameWidth / frameHeight;
-      const contentWidth = Math.min(rect.width, rect.height * aspect);
-      const contentHeight = contentWidth / aspect;
-      const left = rect.left + (rect.width - contentWidth) / 2;
-      const top = rect.top + (rect.height - contentHeight) / 2;
-      const frameX = (event.clientX - left) / contentWidth * frameWidth;
-      const frameY = (event.clientY - top) / contentHeight * frameHeight;
-      const active = frameInfo?.content_rect || {x: 0, y: 0, width: frameWidth, height: frameHeight};
-      return {
-        x: Math.round(frameX - active.x),
-        y: Math.round(frameY - active.y),
-        width: active.width,
-        height: active.height,
-      };
-    }
-    function finishPointer(event) {
-      if (!dragging || event.pointerId !== pointerId) return;
-      const wasDrag = dragMoved;
-      if (wasDrag) queued('/up left');
-      else mouseAction({action: 'click_at', ...imagePoint(event)});
-      dragging = false; dragStarted = false; dragMoved = false; pointerId = null; lastPoint = null;
-      if (image.hasPointerCapture(event.pointerId)) image.releasePointerCapture(event.pointerId);
-    }
-    image.addEventListener('pointerup', finishPointer);
-    image.addEventListener('pointercancel', finishPointer);
     updateZoom(); refreshImage(); refreshStatus();
     setInterval(refreshImage, 500); setInterval(refreshStatus, 3000);
   </script>
