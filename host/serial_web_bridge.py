@@ -164,6 +164,19 @@ class SerialBridge:
                         raise
             raise RuntimeError("Serial command retry failed")
 
+    def move_relative(self, dx: int, dy: int) -> str:
+        """Send a relative move as HID-sized reports, never overflowing int8."""
+        remaining_x, remaining_y = dx, dy
+        response = ""
+        while remaining_x or remaining_y:
+            step_x = max(-127, min(127, remaining_x))
+            step_y = max(-127, min(127, remaining_y))
+            response = self.command(f"/move {step_x},{step_y}")
+            remaining_x -= step_x
+            remaining_y -= step_y
+        self._log("move_relative", delta={"x": dx, "y": dy}, response=response)
+        return response or "no movement"
+
     def status(self) -> dict[str, str | bool]:
         try:
             response = self.command("/status")
@@ -291,7 +304,7 @@ class SerialBridge:
         dx = target[0] - self._cursor[0]
         dy = target[1] - self._cursor[1]
         if dx or dy:
-            self.command(f"/move {dx},{dy}")
+            self.move_relative(dx, dy)
         response = self.command("/click left")
         self._cursor = target
         self._save_calibration()
@@ -436,7 +449,14 @@ class Handler(BaseHTTPRequestHandler):
             allowed = command.startswith(("/status", "/home", "/move ", "/click left", "/down left", "/up left", "/scroll ")) or is_digit_key
             if not allowed:
                 raise ValueError("Unsupported command")
-            response = bridge.command(command)
+            if command.startswith("/move "):
+                try:
+                    dx, dy = (int(value.strip()) for value in command[6:].split(",", 1))
+                except (TypeError, ValueError):
+                    raise ValueError("Usage: /move x,y") from None
+                response = bridge.move_relative(dx, dy)
+            else:
+                response = bridge.command(command)
             self._send(200, json.dumps({"ok": True, "response": response}).encode(), "application/json")
         except Exception as exc:
             self._send(400, json.dumps({"ok": False, "error": str(exc)}).encode(), "application/json")
