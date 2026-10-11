@@ -47,8 +47,8 @@
     .settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b5c4d7; font-size: 13px; }
     .settings input { width: 82px; padding: 7px 8px; }
     #log { position: absolute; z-index: 3; left: 22px; top: 58px; max-width: 45vw; color: #b5c4d7; font-size: 12px; pointer-events: none; }
-    .video-keypad { position: absolute; z-index: 4; top: 50%; right: max(18px, env(safe-area-inset-right)); display: grid; justify-items: end; gap: 8px; transform: translateY(-50%); pointer-events: auto; }
-    .keypad-toggle { width: 48px; min-width: 48px; height: 40px; min-height: 40px; padding: 6px 8px; border-color: rgba(126, 153, 184, .45); border-radius: 12px; background: rgba(13, 21, 32, .78); box-shadow: 0 8px 24px rgba(0,0,0,.28); color: #c9d8ea; font-size: 12px; font-weight: 650; letter-spacing: .04em; backdrop-filter: blur(12px); }
+    .video-keypad { position: static; display: grid; justify-items: stretch; gap: 8px; width: 100%; pointer-events: auto; }
+    .keypad-toggle { width: 100%; min-width: 48px; height: 40px; min-height: 40px; padding: 6px 8px; border-color: rgba(126, 153, 184, .45); border-radius: 12px; background: rgba(13, 21, 32, .78); box-shadow: 0 8px 24px rgba(0,0,0,.28); color: #c9d8ea; font-size: 12px; font-weight: 650; letter-spacing: .04em; backdrop-filter: blur(12px); }
     .keypad-toggle::after { display: inline-block; margin-left: 3px; content: '‹'; color: #8ea6c2; transition: transform .18s ease; }
     .video-keypad.open .keypad-toggle::after { transform: rotate(180deg); }
     .video-keypad-content { display: none; grid-template-columns: repeat(3, 48px); gap: 7px; padding: 10px; border: 1px solid rgba(126, 153, 184, .28); border-radius: 16px; background: rgba(9, 16, 26, .84); box-shadow: 0 16px 36px rgba(0,0,0,.34); backdrop-filter: blur(18px); }
@@ -70,7 +70,7 @@
       .settings { left: 12px; right: 12px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 188px); width: auto; min-width: 0; max-width: none; max-height: calc(100dvh - 100px); overflow-y: auto; padding: 14px; transform: none; }
       .settings label { display: grid; grid-template-columns: 1fr minmax(82px, 112px); gap: 10px; font-size: 13px; }
       .settings input { width: 100%; min-width: 0; }
-      .video-keypad { position: fixed !important; z-index: 5; top: max(12px, env(safe-area-inset-top)) !important; right: 12px !important; bottom: auto !important; transform: none !important; }
+      .video-keypad { position: static; width: 100%; }
       .video-keypad-content { grid-template-columns: repeat(3, 42px); padding: 8px; gap: 6px; }
       .video-keypad-content button { width: 42px; min-width: 42px; height: 42px; min-height: 42px; border-radius: 12px; }
       #log { left: 12px; max-width: 80vw; }
@@ -80,7 +80,7 @@
       .direction-pad .direction { font-size: 18px; }
       .utility-row { flex-basis: 150px; gap: 5px; }
       .utility-row button { padding-inline: 5px; font-size: 11px; }
-      .video-keypad { right: 10px; }
+      .video-keypad { width: 100%; }
     }
     @media (max-width: 720px) and (orientation: landscape) {
       .toolbar { max-height: 34vh; }
@@ -94,22 +94,6 @@
     <img id="ipadImage" src="/current.jpg" alt="iPad 实时画面">
     <div id="placeholder"><div><strong>等待 iPad 画面</strong>请确认 HDMI 采集卡已连接并启动服务。</div></div>
     <div class="scrim"></div>
-    <div class="video-keypad" id="videoKeypad" aria-label="视频画面数字触摸键">
-      <button class="keypad-toggle" id="keypadToggle" aria-expanded="false" aria-controls="keypadContent">数字</button>
-      <div class="video-keypad-content" id="keypadContent" hidden>
-        <div class="video-keypad-label">数字触摸键</div>
-        <button data-key="1" aria-label="数字 1">1</button>
-        <button data-key="2" aria-label="数字 2">2</button>
-        <button data-key="3" aria-label="数字 3">3</button>
-        <button data-key="4" aria-label="数字 4">4</button>
-        <button data-key="5" aria-label="数字 5">5</button>
-        <button data-key="6" aria-label="数字 6">6</button>
-        <button data-key="7" aria-label="数字 7">7</button>
-        <button data-key="8" aria-label="数字 8">8</button>
-        <button data-key="9" aria-label="数字 9">9</button>
-        <button class="zero" data-key="0" aria-label="数字 0">0</button>
-      </div>
-    </div>
     <header class="topbar"><h1>iPad Control Bridge</h1><div id="status">正在检查连接…</div></header>
     <div id="log">鼠标模式：拖动画面移动光标，按钮执行对应操作</div>
     <section class="settings" id="settings">
@@ -143,6 +127,22 @@
           <button data-scroll="1">滚轮下</button>
           <button id="home" class="primary">⌘H 主屏</button>
           <button id="settingsButton" aria-label="设置">⚙</button>
+        </div>
+        <div class="video-keypad" id="videoKeypad" aria-label="视频画面数字触摸键">
+          <button class="keypad-toggle" id="keypadToggle" aria-expanded="false" aria-controls="keypadContent">数字键</button>
+          <div class="video-keypad-content" id="keypadContent" hidden>
+            <div class="video-keypad-label">数字触摸键</div>
+            <button data-key="1" aria-label="数字 1">1</button>
+            <button data-key="2" aria-label="数字 2">2</button>
+            <button data-key="3" aria-label="数字 3">3</button>
+            <button data-key="4" aria-label="数字 4">4</button>
+            <button data-key="5" aria-label="数字 5">5</button>
+            <button data-key="6" aria-label="数字 6">6</button>
+            <button data-key="7" aria-label="数字 7">7</button>
+            <button data-key="8" aria-label="数字 8">8</button>
+            <button data-key="9" aria-label="数字 9">9</button>
+            <button class="zero" data-key="0" aria-label="数字 0">0</button>
+          </div>
         </div>
       </nav>
     </div>
