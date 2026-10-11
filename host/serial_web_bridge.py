@@ -109,6 +109,23 @@ class SerialBridge:
         except Exception as exc:  # Prototype endpoint: return diagnostics to the UI.
             return {"connected": False, "port": self._port or "none", "response": str(exc)}
 
+    def jump_preset(self, preset: str) -> str:
+        """Move toward a coarse screen preset without calibration state."""
+        moves = {
+            "top-left": (-4064, -4064),
+            "top-right": (4064, -4064),
+            "bottom-left": (-4064, 4064),
+            "bottom-right": (4064, 4064),
+        }
+        if preset == "center":
+            self.command("/move -4064,-4064")
+            response = self.command("/move 2032,2032")
+            return f"已移动到中心附近：{response}"
+        if preset not in moves:
+            raise ValueError("无效的快捷位置")
+        response = self.command(f"/move {moves[preset][0]},{moves[preset][1]}")
+        return f"已移动到{preset}附近：{response}"
+
 
 bridge = SerialBridge()
 
@@ -146,10 +163,13 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
             command = str(payload.get("command", "")).strip()
             is_digit_key = len(command) == 6 and command.startswith("/key ") and command[-1] in "0123456789"
-            allowed = command.startswith(("/status", "/home", "/move ", "/click left", "/down left", "/up left", "/scroll ")) or is_digit_key
+            allowed = command.startswith(("/status", "/home", "/move ", "/jump ", "/click left", "/down left", "/up left", "/scroll ")) or is_digit_key
             if not allowed:
                 raise ValueError("Unsupported command")
-            response = bridge.command(command)
+            if command.startswith("/jump "):
+                response = bridge.jump_preset(command[6:].strip())
+            else:
+                response = bridge.command(command)
             self._send(200, json.dumps({"ok": True, "response": response}).encode(), "application/json")
         except Exception as exc:
             self._send(400, json.dumps({"ok": False, "error": str(exc)}).encode(), "application/json")

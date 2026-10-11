@@ -32,6 +32,9 @@
     .direction-pad .click { grid-column: 2; grid-row: 2; border-color: #5ed69f; background: #16523f; font-size: 12px; }
     .direction-pad .right { grid-column: 3; grid-row: 2; }
     .direction-pad .down { grid-column: 2; grid-row: 3; }
+    .preset-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .preset-row button { min-width: 0; min-height: 34px; padding: 5px 4px; font-size: 11px; }
+    .preset-row .center { border-color: #5ed69f; background: #16523f; }
     .utility-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
     .utility-row button { min-width: 0; padding-inline: 9px; }
     .utility-row .primary { grid-column: 1 / -1; }
@@ -127,6 +130,13 @@
           <button class="direction right" data-step="1,0" aria-label="右移">→</button>
           <button class="direction down" data-step="0,1" aria-label="下移">↓</button>
         </div>
+        <div class="preset-row" aria-label="快速位置">
+          <button data-jump="top-left">左上</button>
+          <button data-jump="top-right">右上</button>
+          <button data-jump="bottom-left">左下</button>
+          <button data-jump="bottom-right">右下</button>
+          <button class="center" data-jump="center">中心</button>
+        </div>
         <span class="divider"></span>
         <div class="utility-row">
           <button data-scroll="-1">滚轮上</button>
@@ -219,6 +229,7 @@
     restoreSettings();
     Object.values(settingInputs).forEach(input => input.addEventListener('input', saveSettings));
     document.querySelectorAll('[data-command]').forEach(button => button.onclick = () => queued(button.dataset.command));
+    document.querySelectorAll('[data-jump]').forEach(button => button.onclick = () => queued(`/jump ${button.dataset.jump}`));
     document.querySelectorAll('[data-key]').forEach(button => button.onclick = () => queued(`/key ${button.dataset.key}`));
     document.querySelectorAll('[data-scroll]').forEach(button => button.onclick = () => {
       const amount = Math.max(400, Math.min(5000, Number(scrollStep.value) || 400));
