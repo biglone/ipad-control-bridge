@@ -10,6 +10,7 @@
     body { margin: 0; min-height: 100vh; overflow: hidden; background: #080b10; color: #f4f7fb; }
     .stage { position: fixed; inset: 0; background: #080b10; touch-action: none; }
     #ipadImage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scale(var(--zoom, 1)); transform-origin: center; user-select: none; }
+    #activeFrame { position: absolute; z-index: 1; border: 2px dashed rgba(87,214,255,.9); box-shadow: 0 0 0 1px rgba(0,0,0,.45), inset 0 0 24px rgba(87,214,255,.08); pointer-events: none; }
     #calibrationTarget { position: absolute; z-index: 2; width: 28px; height: 28px; margin: -14px 0 0 -14px; border: 3px solid #ff5364; border-radius: 50%; box-shadow: 0 0 0 5px rgba(255,83,100,.28), 0 0 18px rgba(255,83,100,.85); pointer-events: none; }
     #placeholder { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #9aa9bc; background: #0b1017; }
     #placeholder strong { display: block; margin-bottom: 8px; color: #f4f7fb; font-size: 20px; }
@@ -94,6 +95,7 @@
 <body>
   <main class="stage" id="screen">
     <img id="ipadImage" src="/current.jpg" alt="iPad 实时画面">
+    <div id="activeFrame" hidden></div>
     <div id="calibrationTarget" hidden></div>
     <div id="placeholder"><div><strong>等待 iPad 画面</strong>请确认 HDMI 采集卡已连接并启动服务。</div></div>
     <div class="scrim"></div>
@@ -125,12 +127,12 @@
       <button id="sendMove">发送自定义移动</button>
       <button class="wide primary" id="calibrateMouse">开始多点校准（复位）</button>
       <div class="calibration-box" id="calibrationBox">
-        <div>校准时请看 iPad 实际光标：用画面拖动或方向键，把光标放到对应位置，再记录该点。</div>
+        <div>蓝框是检测到的 iPad 画面边界；红环是目标，不是当前光标。请看 iPad 实际白色光标，用画面拖动或方向键把它放到红环，再记录该点。</div>
         <div class="calibration-points">
-          <button data-calibration-point="0">记录左上</button>
-          <button data-calibration-point="1">记录右上</button>
-          <button data-calibration-point="2">记录右下</button>
-          <button data-calibration-point="3">记录左下</button>
+          <button data-calibration-point="0">记录左上角</button>
+          <button data-calibration-point="1">记录右上角</button>
+          <button data-calibration-point="2">记录右下角</button>
+          <button data-calibration-point="3">记录左下角</button>
         </div>
         <button class="wide" id="solveCalibration">完成多点校准</button>
       </div>
@@ -157,6 +159,7 @@
   <script>
     const screen = document.querySelector('#screen');
     const image = document.querySelector('#ipadImage');
+    const activeFrame = document.querySelector('#activeFrame');
     const placeholder = document.querySelector('#placeholder');
     const status = document.querySelector('#status');
     const log = document.querySelector('#log');
@@ -185,10 +188,10 @@
     let calibrationStarted = false;
     let calibrationIndex = 0;
     const calibrationPoints = [
-      {name: '左上', x: 0.08, y: 0.08},
-      {name: '右上', x: 0.92, y: 0.08},
-      {name: '右下', x: 0.92, y: 0.92},
-      {name: '左下', x: 0.08, y: 0.92},
+      {name: '左上', x: 0.02, y: 0.02},
+      {name: '右上', x: 0.98, y: 0.02},
+      {name: '右下', x: 0.98, y: 0.98},
+      {name: '左下', x: 0.02, y: 0.98},
     ];
 
     function setLog(message) { log.textContent = message; }
@@ -227,6 +230,8 @@
       try {
         const data = await fetch('/api/status', {cache: 'no-store'}).then(response => response.json());
         frameInfo = data.frame || null;
+        placeActiveFrame();
+        placeCalibrationTarget(calibrationIndex);
         const calibrationLabel = data.calibration_ready ? ' · 多点校准完成' : data.calibrated ? ' · 已复位待标定' : ' · 未校准';
         status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + calibrationLabel : 'BLE 未连接';
         status.classList.toggle('connected', data.connected);
@@ -241,7 +246,7 @@
       // Preload exactly one frame, then swap to that already-decoded URL.
       // If capture is writing a partial JPEG, keep the previous frame instead
       // of clearing the visible image and flashing black.
-      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; placeCalibrationTarget(calibrationIndex); };
+      probe.onload = () => { image.src = url; image.style.display = 'block'; placeholder.style.display = 'none'; placeActiveFrame(); placeCalibrationTarget(calibrationIndex); };
       probe.onerror = () => {};
       probe.src = url;
     }
@@ -264,6 +269,24 @@
       marker.style.left = `${frameLeft + (active.x + active.width * point.x) / frameWidth * displayedWidth}px`;
       marker.style.top = `${frameTop + (active.y + active.height * point.y) / frameHeight * displayedHeight}px`;
       marker.hidden = false;
+    }
+    function placeActiveFrame() {
+      if (!frameInfo?.content_rect || !image.naturalWidth) {
+        activeFrame.hidden = true;
+        return;
+      }
+      const rect = image.getBoundingClientRect();
+      const frameAspect = image.naturalWidth / image.naturalHeight;
+      const displayedWidth = Math.min(rect.width, rect.height * frameAspect);
+      const displayedHeight = displayedWidth / frameAspect;
+      const frameLeft = rect.left + (rect.width - displayedWidth) / 2;
+      const frameTop = rect.top + (rect.height - displayedHeight) / 2;
+      const active = frameInfo.content_rect;
+      activeFrame.style.left = `${frameLeft + active.x / image.naturalWidth * displayedWidth}px`;
+      activeFrame.style.top = `${frameTop + active.y / image.naturalHeight * displayedHeight}px`;
+      activeFrame.style.width = `${active.width / image.naturalWidth * displayedWidth}px`;
+      activeFrame.style.height = `${active.height / image.naturalHeight * displayedHeight}px`;
+      activeFrame.hidden = false;
     }
     function restoreSettings() {
       try {
