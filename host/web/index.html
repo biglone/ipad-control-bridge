@@ -166,6 +166,7 @@
     let repeatTimer = null;
     let dragStarted = false;
     let dragMoved = false;
+    let frameInfo = null;
 
     function setLog(message) { log.textContent = message; }
     async function command(value) {
@@ -202,6 +203,7 @@
     async function refreshStatus() {
       try {
         const data = await fetch('/api/status', {cache: 'no-store'}).then(response => response.json());
+        frameInfo = data.frame || null;
         status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + (data.calibrated ? ' · 已校准' : ' · 未校准') : 'BLE 未连接';
         status.classList.toggle('connected', data.connected);
       } catch (error) {
@@ -341,18 +343,21 @@
     });
     function imagePoint(event) {
       const rect = image.getBoundingClientRect();
-      const naturalWidth = image.naturalWidth || Math.round(rect.width);
-      const naturalHeight = image.naturalHeight || Math.round(rect.height);
-      const aspect = naturalWidth / naturalHeight;
+      const frameWidth = image.naturalWidth || Math.round(rect.width);
+      const frameHeight = image.naturalHeight || Math.round(rect.height);
+      const aspect = frameWidth / frameHeight;
       const contentWidth = Math.min(rect.width, rect.height * aspect);
       const contentHeight = contentWidth / aspect;
       const left = rect.left + (rect.width - contentWidth) / 2;
       const top = rect.top + (rect.height - contentHeight) / 2;
+      const frameX = (event.clientX - left) / contentWidth * frameWidth;
+      const frameY = (event.clientY - top) / contentHeight * frameHeight;
+      const active = frameInfo?.content_rect || {x: 0, y: 0, width: frameWidth, height: frameHeight};
       return {
-        x: Math.round((event.clientX - left) / contentWidth * naturalWidth),
-        y: Math.round((event.clientY - top) / contentHeight * naturalHeight),
-        width: naturalWidth,
-        height: naturalHeight,
+        x: Math.round(frameX - active.x),
+        y: Math.round(frameY - active.y),
+        width: active.width,
+        height: active.height,
       };
     }
     function finishPointer(event) {

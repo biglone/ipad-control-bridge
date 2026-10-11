@@ -16,6 +16,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - optional on minimal host installs
+    Image = None
+
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
@@ -150,6 +155,63 @@ class SerialBridge:
 bridge = SerialBridge()
 
 
+_frame_info_cache: dict[str, object] = {
+    "mtime_ns": None,
+    "width": 0,
+    "height": 0,
+    "content_rect": None,
+}
+
+
+def frame_info() -> dict[str, object]:
+    """Return the source frame size and the non-black active video rectangle."""
+    try:
+        stat = CAPTURE_FILE.stat()
+    except OSError:
+        return {"width": 0, "height": 0, "content_rect": None}
+    if _frame_info_cache["mtime_ns"] == stat.st_mtime_ns:
+        return {key: _frame_info_cache[key] for key in ("width", "height", "content_rect")}
+
+    width = height = 0
+    content_rect: dict[str, int] | None = None
+    if Image is not None:
+        try:
+            with Image.open(CAPTURE_FILE) as image:
+                width, height = image.size
+                # Downsample for cheap border detection. The capture currently
+                # contains a 4:3 iPad image letterboxed inside a 16:9 frame.
+                sample_width = min(width, 480)
+                sample_height = max(1, round(height * sample_width / width))
+                sample = image.convert("L").resize((sample_width, sample_height))
+                pixels = sample.load()
+                threshold = 8
+                active_columns = [
+                    x for x in range(sample_width)
+                    if sum(pixels[x, y] > threshold for y in range(sample_height)) > sample_height * 0.1
+                ]
+                active_rows = [
+                    y for y in range(sample_height)
+                    if sum(pixels[x, y] > threshold for x in range(sample_width)) > sample_width * 0.1
+                ]
+                if active_columns and active_rows:
+                    left = round(min(active_columns) * width / sample_width)
+                    right = round((max(active_columns) + 1) * width / sample_width)
+                    top = round(min(active_rows) * height / sample_height)
+                    bottom = round((max(active_rows) + 1) * height / sample_height)
+                    if right - left > width * 0.5 and bottom - top > height * 0.5:
+                        content_rect = {"x": left, "y": top, "width": right - left, "height": bottom - top}
+        except Exception:
+            pass
+
+    _frame_info_cache.update({
+        "mtime_ns": stat.st_mtime_ns,
+        "width": width,
+        "height": height,
+        "content_rect": content_rect,
+    })
+    return {key: _frame_info_cache[key] for key in ("width", "height", "content_rect")}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -162,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/api/status":
-            body = json.dumps(bridge.status(), ensure_ascii=False).encode()
+            body = json.dumps({**bridge.status(), "frame": frame_info()}, ensure_ascii=False).encode()
             self._send(200, body, "application/json; charset=utf-8")
             return
         if path == "/current.jpg" and CAPTURE_FILE.exists():
