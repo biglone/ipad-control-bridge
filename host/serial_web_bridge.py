@@ -28,6 +28,7 @@ WEB_ROOT = ROOT / "web"
 CAPTURE_FILE = WEB_ROOT / "current.jpg"
 CALIBRATION_FILE = ROOT / ".run" / "mouse-calibration.json"
 CALIBRATION_LOG = ROOT / ".run" / "mouse-calibration.log"
+CALIBRATION_CORNER_SPAN = 32 * 127
 PORT = int(os.environ.get("IPAD_BRIDGE_PORT", "8765"))
 BIND_HOST = os.environ.get("IPAD_BRIDGE_HOST", "0.0.0.0")
 if sys.platform == "darwin":
@@ -212,6 +213,21 @@ class SerialBridge:
         self._save_calibration()
         self._log("record_point", point=point, locked_frame=self._locked_frame)
         return f"已记录校准点 {len(self._calibration_points)}（命令坐标 {self._cursor}，目标坐标 {x},{y}）"
+
+    def move_to_calibration_corner(self, corner: str) -> str:
+        positions = {
+            "top-left": (0, 0),
+            "top-right": (CALIBRATION_CORNER_SPAN, 0),
+            "bottom-right": (CALIBRATION_CORNER_SPAN, CALIBRATION_CORNER_SPAN),
+            "bottom-left": (0, CALIBRATION_CORNER_SPAN),
+        }
+        if corner not in positions:
+            raise ValueError("无效的校准角点")
+        response = self.command(f"/corner {corner}")
+        self._cursor = positions[corner]
+        self._save_calibration()
+        self._log("move_to_corner", corner=corner, response=response, locked_frame=self._locked_frame)
+        return response
 
     @staticmethod
     def _solve_3x3(matrix: list[list[float]], vector: list[float]) -> list[float]:
@@ -399,6 +415,9 @@ class Handler(BaseHTTPRequestHandler):
                     response = bridge.calibrate()
                 elif action == "record_point":
                     response = bridge.record_calibration_point(int(payload.get("x", -1)), int(payload.get("y", -1)))
+                    next_corner = payload.get("next_corner")
+                    if next_corner:
+                        response += "；" + bridge.move_to_calibration_corner(str(next_corner))
                 elif action == "solve_calibration":
                     response = bridge.solve_calibration()
                 elif action == "click_at":

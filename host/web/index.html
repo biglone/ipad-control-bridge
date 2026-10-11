@@ -127,7 +127,7 @@
       <button id="sendMove">发送自定义移动</button>
       <button class="wide primary" id="calibrateMouse">开始多点校准（复位）</button>
       <div class="calibration-box" id="calibrationBox">
-        <div>蓝框是检测到的 iPad 画面边界；红环是目标，不是当前光标。请看 iPad 实际白色光标，用画面拖动或方向键把它放到红环，再记录该点。</div>
+        <div>蓝框是锁定的 iPad 画面边界；红环是目标，不是当前光标。左上角记录后，系统会自动把实际光标推到下一个角点；确认白色光标与红环中心重合后再记录。</div>
         <div class="calibration-points">
           <button data-calibration-point="0">记录左上角</button>
           <button data-calibration-point="1">记录右上角</button>
@@ -193,6 +193,7 @@
       {name: '右下', x: 0.98, y: 0.98},
       {name: '左下', x: 0.02, y: 0.98},
     ];
+    const calibrationCorners = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
 
     function setLog(message) { log.textContent = message; }
     async function command(value) {
@@ -213,7 +214,7 @@
     }
     function mouseAction(action) {
       queue = queue.then(async () => {
-        setLog(action.action === 'calibrate' ? '正在校准鼠标…' : '正在定位并点击…');
+        setLog(action.action === 'calibrate' ? '正在校准鼠标…' : action.action === 'record_point' ? '正在记录并移动到下一个角点…' : '正在定位并点击…');
         try {
           const response = await fetch('/api/mouse', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(action)});
           const data = await response.json();
@@ -376,7 +377,7 @@
       calibrationStarted = true;
       calibrationIndex = 0;
       mouseAction({action: 'calibration_start'}).then(() => refreshStatus());
-      setLog('已复位到左上，请按校准点依次放置实际 iPad 光标');
+      setLog('已复位到左上，请确认白色光标与红环中心重合后记录');
       placeCalibrationTarget(calibrationIndex);
     };
     document.querySelectorAll('[data-calibration-point]').forEach(button => {
@@ -385,9 +386,15 @@
           setLog('请先点击“开始多点校准（复位）”');
           return;
         }
-        const point = calibrationPoints[Number(button.dataset.calibrationPoint)];
+        const pointIndex = Number(button.dataset.calibrationPoint);
+        if (pointIndex !== calibrationIndex) {
+          setLog(`请先记录${calibrationPoints[calibrationIndex].name}角`);
+          return;
+        }
+        const point = calibrationPoints[pointIndex];
         const rect = frameInfo.content_rect;
-        mouseAction({action: 'record_point', x: Math.round(rect.width * point.x), y: Math.round(rect.height * point.y)})
+        const nextCorner = pointIndex < calibrationCorners.length - 1 ? calibrationCorners[pointIndex + 1] : null;
+        mouseAction({action: 'record_point', x: Math.round(rect.width * point.x), y: Math.round(rect.height * point.y), next_corner: nextCorner})
           .then(() => {
             calibrationIndex = Math.min(calibrationPoints.length - 1, Number(button.dataset.calibrationPoint) + 1);
             placeCalibrationTarget(calibrationIndex);

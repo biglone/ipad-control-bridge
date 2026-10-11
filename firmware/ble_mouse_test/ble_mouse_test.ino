@@ -22,7 +22,7 @@ void setup() {
 
     Serial.println("BLE mouse ready");
     Serial.println("Pair: iPad Settings > Bluetooth > iPad Control Bridge");
-    Serial.println("Commands: /move x,y  /click left  /edge  /scroll n  /key 0-9  /home  /status");
+    Serial.println("Commands: /move x,y  /click left  /edge  /corner name  /scroll n  /key 0-9  /home  /status");
 }
 
 void loop() {
@@ -85,6 +85,34 @@ void loop() {
             delay(4);
         }
         Serial.println("pointer at top-left edge");
+        return;
+    }
+
+    if (command.startsWith("/corner ")) {
+        String corner = command.substring(8);
+        int x = 0;
+        int y = 0;
+        if (corner == "top-right") {
+            x = 127;
+            y = -127;
+        } else if (corner == "bottom-right") {
+            x = 127;
+            y = 127;
+        } else if (corner == "bottom-left") {
+            x = -127;
+            y = 127;
+        } else if (corner == "top-left") {
+            x = -127;
+            y = -127;
+        } else {
+            Serial.println("Usage: /corner top-left|top-right|bottom-right|bottom-left");
+            return;
+        }
+        for (int i = 0; i < 32; ++i) {
+            ble.mouseMove(x, y);
+            delay(4);
+        }
+        Serial.println("pointer at " + corner + " edge");
         return;
     }
 
