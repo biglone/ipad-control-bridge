@@ -119,6 +119,7 @@ class SerialBridge:
         }
         if preset == "center":
             self.command("/move -4064,-4064")
+            time.sleep(0.15)
             response = self.command("/move 2032,2032")
             return f"已移动到中心附近：{response}"
         if preset not in moves:
