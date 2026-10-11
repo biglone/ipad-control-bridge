@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover - optional on minimal host installs
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
 CAPTURE_FILE = WEB_ROOT / "current.jpg"
+CALIBRATION_FILE = ROOT / ".run" / "mouse-calibration.json"
 PORT = int(os.environ.get("IPAD_BRIDGE_PORT", "8765"))
 BIND_HOST = os.environ.get("IPAD_BRIDGE_HOST", "0.0.0.0")
 if sys.platform == "darwin":
@@ -49,6 +50,23 @@ class SerialBridge:
         self._port: str | None = None
         self._lock = threading.Lock()
         self._cursor: tuple[int, int] | None = None
+        self._calibration_points: list[dict[str, int]] = []
+        self._model: list[float] | None = None
+        self._load_calibration()
+
+    def _load_calibration(self) -> None:
+        try:
+            data = json.loads(CALIBRATION_FILE.read_text())
+            self._calibration_points = list(data.get("points", []))
+            model = data.get("model")
+            self._model = [float(value) for value in model] if model and len(model) == 6 else None
+        except (OSError, ValueError, TypeError):
+            self._calibration_points = []
+            self._model = None
+
+    def _save_calibration(self) -> None:
+        CALIBRATION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CALIBRATION_FILE.write_text(json.dumps({"points": self._calibration_points, "model": self._model}))
 
     def _disconnect(self) -> None:
         if self._fd is not None:
@@ -120,6 +138,8 @@ class SerialBridge:
                 "response": response,
                 "calibrated": self._cursor is not None,
                 "cursor": self._cursor,
+                "calibration_ready": self._model is not None,
+                "calibration_points": len(self._calibration_points),
             }
         except Exception as exc:  # Prototype endpoint: return diagnostics to the UI.
             return {
@@ -128,6 +148,8 @@ class SerialBridge:
                 "response": str(exc),
                 "calibrated": self._cursor is not None,
                 "cursor": self._cursor,
+                "calibration_ready": self._model is not None,
+                "calibration_points": len(self._calibration_points),
             }
 
     def calibrate(self) -> str:
@@ -135,14 +157,71 @@ class SerialBridge:
         if "pointer at top-left edge" not in response:
             raise RuntimeError(response or "ESP32 未确认校准成功")
         self._cursor = (0, 0)
+        self._calibration_points = []
+        self._model = None
+        self._save_calibration()
         return response
+
+    def record_calibration_point(self, x: int, y: int) -> str:
+        if self._cursor is None:
+            raise RuntimeError("请先开始校准")
+        point = {"command_x": self._cursor[0], "command_y": self._cursor[1], "screen_x": x, "screen_y": y}
+        self._calibration_points = [
+            existing for existing in self._calibration_points
+            if existing["screen_x"] != x or existing["screen_y"] != y
+        ]
+        self._calibration_points.append(point)
+        self._model = None
+        self._save_calibration()
+        return f"已记录校准点 {len(self._calibration_points)}"
+
+    @staticmethod
+    def _solve_3x3(matrix: list[list[float]], vector: list[float]) -> list[float]:
+        rows = [matrix[index][:] + [vector[index]] for index in range(3)]
+        for column in range(3):
+            pivot = max(range(column, 3), key=lambda row: abs(rows[row][column]))
+            if abs(rows[pivot][column]) < 1e-9:
+                raise ValueError("校准点不能共线")
+            rows[column], rows[pivot] = rows[pivot], rows[column]
+            divisor = rows[column][column]
+            rows[column] = [value / divisor for value in rows[column]]
+            for row in range(3):
+                if row == column:
+                    continue
+                factor = rows[row][column]
+                rows[row] = [rows[row][i] - factor * rows[column][i] for i in range(4)]
+        return [rows[index][3] for index in range(3)]
+
+    def solve_calibration(self) -> str:
+        if len(self._calibration_points) < 3:
+            raise ValueError("至少需要记录 3 个不共线的校准点")
+        rows = [[1.0, point["command_x"], point["command_y"]] for point in self._calibration_points]
+        normal = [[sum(row[i] * row[j] for row in rows) for j in range(3)] for i in range(3)]
+        x_values = [point["screen_x"] for point in self._calibration_points]
+        y_values = [point["screen_y"] for point in self._calibration_points]
+        x_model = self._solve_3x3(normal, [sum(rows[index][i] * x_values[index] for index in range(len(rows))) for i in range(3)])
+        y_model = self._solve_3x3(normal, [sum(rows[index][i] * y_values[index] for index in range(len(rows))) for i in range(3)])
+        self._model = [*x_model, *y_model]
+        self._save_calibration()
+        return "多点校准完成"
 
     def click_at(self, x: int, y: int, width: int, height: int) -> str:
         if self._cursor is None:
             raise RuntimeError("请先校准鼠标位置")
+        if self._model is None:
+            raise RuntimeError("请先完成至少 3 个校准点")
         if width <= 0 or height <= 0:
             raise ValueError("无效的 iPad 画面尺寸")
-        target = (max(0, min(width - 1, x)), max(0, min(height - 1, y)))
+        x = max(0, min(width - 1, x))
+        y = max(0, min(height - 1, y))
+        x_offset, x_command, x_cross, y_offset, y_command, y_cross = self._model
+        determinant = x_command * y_cross - x_cross * y_command
+        if abs(determinant) < 1e-9:
+            raise RuntimeError("校准矩阵无效，请重新校准")
+        target = (
+            round(((x - x_offset) * y_cross - x_cross * (y - y_offset)) / determinant),
+            round((x_command * (y - y_offset) - (x - x_offset) * y_command) / determinant),
+        )
         dx = target[0] - self._cursor[0]
         dy = target[1] - self._cursor[1]
         if dx or dy:
@@ -246,8 +325,12 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
             if path == "/api/mouse":
                 action = str(payload.get("action", "")).strip()
-                if action == "calibrate":
+                if action in ("calibrate", "calibration_start"):
                     response = bridge.calibrate()
+                elif action == "record_point":
+                    response = bridge.record_calibration_point(int(payload.get("x", -1)), int(payload.get("y", -1)))
+                elif action == "solve_calibration":
+                    response = bridge.solve_calibration()
                 elif action == "click_at":
                     response = bridge.click_at(
                         int(payload.get("x", -1)),

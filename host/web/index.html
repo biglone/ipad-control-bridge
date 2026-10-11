@@ -44,6 +44,9 @@
     .settings label { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #b5c4d7; font-size: 13px; }
     .settings input { width: 82px; padding: 7px 8px; }
     .settings .wide { width: 100%; }
+    .calibration-box { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid #3a4b64; color: #b5c4d7; font-size: 12px; line-height: 1.45; }
+    .calibration-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .calibration-points button { min-width: 0; min-height: 34px; padding: 5px; font-size: 11px; }
     #log { position: absolute; z-index: 3; left: 22px; top: 58px; max-width: 45vw; color: #b5c4d7; font-size: 12px; pointer-events: none; }
     .video-keypad { position: absolute; z-index: 4; top: 50%; right: max(18px, env(safe-area-inset-right)); display: grid; justify-items: end; gap: 8px; transform: translateY(-50%); pointer-events: auto; }
     .keypad-toggle { width: 48px; min-width: 48px; height: 40px; min-height: 40px; padding: 6px 8px; border-color: rgba(126, 153, 184, .45); border-radius: 12px; background: rgba(13, 21, 32, .78); box-shadow: 0 8px 24px rgba(0,0,0,.28); color: #c9d8ea; font-size: 12px; font-weight: 650; letter-spacing: .04em; backdrop-filter: blur(12px); }
@@ -118,7 +121,17 @@
       <label>自定义 X <input id="dx" type="number" value="30"></label>
       <label>自定义 Y <input id="dy" type="number" value="0"></label>
       <button id="sendMove">发送自定义移动</button>
-      <button class="wide primary" id="calibrateMouse">校准鼠标到左上角</button>
+      <button class="wide primary" id="calibrateMouse">开始多点校准（复位）</button>
+      <div class="calibration-box" id="calibrationBox">
+        <div>校准时请看 iPad 实际光标：用画面拖动或方向键，把光标放到对应位置，再记录该点。</div>
+        <div class="calibration-points">
+          <button data-calibration-point="0">记录左上</button>
+          <button data-calibration-point="1">记录右上</button>
+          <button data-calibration-point="2">记录右下</button>
+          <button data-calibration-point="3">记录左下</button>
+        </div>
+        <button class="wide" id="solveCalibration">完成多点校准</button>
+      </div>
     </section>
     <div class="hud">
       <nav class="toolbar" aria-label="iPad 控制按钮">
@@ -167,6 +180,13 @@
     let dragStarted = false;
     let dragMoved = false;
     let frameInfo = null;
+    let calibrationStarted = false;
+    const calibrationPoints = [
+      {name: '左上', x: 0.08, y: 0.08},
+      {name: '右上', x: 0.92, y: 0.08},
+      {name: '右下', x: 0.92, y: 0.92},
+      {name: '左下', x: 0.08, y: 0.92},
+    ];
 
     function setLog(message) { log.textContent = message; }
     async function command(value) {
@@ -204,7 +224,8 @@
       try {
         const data = await fetch('/api/status', {cache: 'no-store'}).then(response => response.json());
         frameInfo = data.frame || null;
-        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + (data.calibrated ? ' · 已校准' : ' · 未校准') : 'BLE 未连接';
+        const calibrationLabel = data.calibration_ready ? ' · 多点校准完成' : data.calibrated ? ' · 已复位待标定' : ' · 未校准';
+        status.textContent = data.connected ? 'BLE 已连接 · ' + data.port + calibrationLabel : 'BLE 未连接';
         status.classList.toggle('connected', data.connected);
       } catch (error) {
         status.textContent = '网页服务未连接';
@@ -304,7 +325,26 @@
       if (open) keypadContent.querySelector('[data-key="1"]').focus();
     };
     document.querySelector('#sendMove').onclick = () => queued(`/move ${Number(document.querySelector('#dx').value) || 0},${Number(document.querySelector('#dy').value) || 0}`);
-    document.querySelector('#calibrateMouse').onclick = () => mouseAction({action: 'calibrate'});
+    document.querySelector('#calibrateMouse').onclick = () => {
+      calibrationStarted = true;
+      mouseAction({action: 'calibration_start'}).then(() => refreshStatus());
+      setLog('已复位到左上，请按校准点依次放置实际 iPad 光标');
+    };
+    document.querySelectorAll('[data-calibration-point]').forEach(button => {
+      button.onclick = () => {
+        if (!calibrationStarted || !frameInfo?.content_rect) {
+          setLog('请先点击“开始多点校准（复位）”');
+          return;
+        }
+        const point = calibrationPoints[Number(button.dataset.calibrationPoint)];
+        const rect = frameInfo.content_rect;
+        mouseAction({action: 'record_point', x: Math.round(rect.width * point.x), y: Math.round(rect.height * point.y)})
+          .then(() => refreshStatus());
+      };
+    });
+    document.querySelector('#solveCalibration').onclick = () => {
+      mouseAction({action: 'solve_calibration'}).then(() => { calibrationStarted = false; refreshStatus(); });
+    };
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape' && videoKeypad.classList.contains('open')) {
         keypadToggle.click();
