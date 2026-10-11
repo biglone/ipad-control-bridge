@@ -14,3 +14,4 @@ __pycache__/
 
 # Local build outputs
 host/airplay_capture/.build/
+firmware/ble_mouse_test/build/
