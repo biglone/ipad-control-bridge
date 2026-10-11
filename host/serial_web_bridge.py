@@ -213,6 +213,16 @@ class SerialBridge:
         self._log("calibration_start", response=response, locked_frame=self._locked_frame)
         return response
 
+    def reset_pointer_origin(self) -> str:
+        """Re-establish the physical pointer origin without discarding calibration."""
+        response = self.command("/edge")
+        if "pointer at top-left edge" not in response:
+            raise RuntimeError(response or "ESP32 未确认光标已复位")
+        self._cursor = (0, 0)
+        self._save_calibration()
+        self._log("pointer_origin_reset", response=response, locked_frame=self._locked_frame)
+        return response
+
     def record_calibration_point(self, x: int, y: int) -> str:
         if self._cursor is None:
             raise RuntimeError("请先开始校准")
@@ -301,8 +311,9 @@ class SerialBridge:
             round(((x - x_offset) * y_cross - x_cross * (y - y_offset)) / determinant),
             round((x_command * (y - y_offset) - (x - x_offset) * y_command) / determinant),
         )
-        dx = target[0] - self._cursor[0]
-        dy = target[1] - self._cursor[1]
+        self.reset_pointer_origin()
+        dx = target[0]
+        dy = target[1]
         if dx or dy:
             self.move_relative(dx, dy)
         response = self.command("/click left")
