@@ -72,7 +72,12 @@ void loop() {
     }
 
     if (command == "/click left") {
-        ble.mouseClick(ESP32BLECombo::MOUSE_LEFT);
+        // Keep the button state long enough for iPadOS to receive the BLE
+        // press and release as two distinct HID reports.
+        ble.mousePress(ESP32BLECombo::MOUSE_LEFT);
+        delay(120);
+        ble.mouseRelease(ESP32BLECombo::MOUSE_LEFT);
+        delay(120);
         Serial.println("left click");
         return;
     }
