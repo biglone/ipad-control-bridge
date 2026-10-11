@@ -202,9 +202,15 @@
     }
     function restoreSettings() {
       try {
-        const saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        let raw = '';
+        try { raw = localStorage.getItem(SETTINGS_STORAGE_KEY) || ''; } catch (storageError) {}
+        const cookieValue = document.cookie.match(/(?:^|; )ipad-control-bridge-settings=([^;]*)/)?.[1];
+        if (!raw && cookieValue) raw = decodeURIComponent(cookieValue);
+        const saved = JSON.parse(raw || '{}');
         Object.entries(settingInputs).forEach(([name, input]) => {
-          if (typeof saved[name] === 'string' && saved[name] !== '') input.value = saved[name];
+          if ((typeof saved[name] === 'string' || typeof saved[name] === 'number') && String(saved[name]) !== '') {
+            input.value = String(saved[name]);
+          }
         });
       } catch (error) {
         // Ignore unavailable or malformed browser storage and keep defaults.
@@ -213,14 +219,25 @@
     function saveSettings() {
       try {
         const values = Object.fromEntries(Object.entries(settingInputs).map(([name, input]) => [name, input.value]));
-        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(values));
+        const serialized = JSON.stringify(values);
+        localStorage.setItem(SETTINGS_STORAGE_KEY, serialized);
+        document.cookie = 'ipad-control-bridge-settings=' + encodeURIComponent(serialized) + '; max-age=31536000; path=/; SameSite=Lax';
       } catch (error) {
-        // Ignore restricted browser storage; the controls still work for this session.
+        try {
+          const values = Object.fromEntries(Object.entries(settingInputs).map(([name, input]) => [name, input.value]));
+          document.cookie = 'ipad-control-bridge-settings=' + encodeURIComponent(JSON.stringify(values)) + '; max-age=31536000; path=/; SameSite=Lax';
+        } catch (fallbackError) {
+          // Ignore restricted browser storage; the controls still work for this session.
+        }
       }
     }
     function updateZoom() { image.style.setProperty('--zoom', Math.max(1, Math.min(2, Number(zoom.value) || 1))); }
     restoreSettings();
-    Object.values(settingInputs).forEach(input => input.addEventListener('input', saveSettings));
+    Object.values(settingInputs).forEach(input => {
+      input.addEventListener('input', saveSettings);
+      input.addEventListener('change', saveSettings);
+    });
+    window.addEventListener('pagehide', saveSettings);
     document.querySelectorAll('[data-command]').forEach(button => button.onclick = () => queued(button.dataset.command));
     document.querySelectorAll('[data-key]').forEach(button => button.onclick = () => queued(`/key ${button.dataset.key}`));
     document.querySelectorAll('[data-scroll]').forEach(button => button.onclick = () => {
@@ -287,14 +304,13 @@
       if (settings.classList.contains('open') && !event.target.closest('#settings, #settingsButton')) settings.classList.remove('open');
     });
     zoom.addEventListener('input', updateZoom);
-    screen.addEventListener('pointerdown', event => {
-      if (event.target.closest('button, input, .settings')) return;
+    image.addEventListener('pointerdown', event => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       dragging = true; pointerId = event.pointerId; lastPoint = {x: event.clientX, y: event.clientY};
-      screen.setPointerCapture(event.pointerId);
+      image.setPointerCapture(event.pointerId);
       queued('/down left');
     });
-    screen.addEventListener('pointermove', event => {
+    image.addEventListener('pointermove', event => {
       if (!dragging || event.pointerId !== pointerId || !lastPoint) return;
       const dx = Math.round(event.clientX - lastPoint.x); const dy = Math.round(event.clientY - lastPoint.y);
       lastPoint = {x: event.clientX, y: event.clientY};
@@ -303,10 +319,10 @@
     function finishPointer(event) {
       if (!dragging || event.pointerId !== pointerId) return;
       dragging = false; pointerId = null; lastPoint = null; queued('/up left');
-      if (screen.hasPointerCapture(event.pointerId)) screen.releasePointerCapture(event.pointerId);
+      if (image.hasPointerCapture(event.pointerId)) image.releasePointerCapture(event.pointerId);
     }
-    screen.addEventListener('pointerup', finishPointer);
-    screen.addEventListener('pointercancel', finishPointer);
+    image.addEventListener('pointerup', finishPointer);
+    image.addEventListener('pointercancel', finishPointer);
     updateZoom(); refreshImage(); refreshStatus();
     setInterval(refreshImage, 500); setInterval(refreshStatus, 3000);
   </script>
