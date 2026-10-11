@@ -120,7 +120,12 @@ class SerialBridge:
         if preset == "center":
             self.command("/move -4064,-4064")
             time.sleep(0.15)
-            response = self.command("/move 2032,2032")
+            # Use many small reports so iPadOS acceleration does not turn one
+            # large relative move into an overshoot toward the bottom-right.
+            response = "moved"
+            for _ in range(32):
+                response = self.command("/move 32,24")
+                time.sleep(0.01)
             return f"已移动到中心附近：{response}"
         if preset not in moves:
             raise ValueError("无效的快捷位置")
